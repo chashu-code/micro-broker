@@ -4,6 +4,8 @@ package fsm
 import "strings"
 import "errors"
 import "github.com/chashu-code/micro-broker/log"
+import "github.com/chashu-code/micro-broker/queue"
+import "runtime/debug"
 
 const (
 	// LeaveState 离开状态回调类型
@@ -67,7 +69,7 @@ type Service struct {
 	// Name 状态机名称
 	Name            string
 	state           string
-	evtQueue        chan Event
+	evtQueue        *queue.Queue
 	flowMap         map[flowKey]string
 	flowCallbackMap map[CallbackKey]CallbackFunc
 }
@@ -95,7 +97,11 @@ func (s *Service) Current() string {
 
 // Flow 流转事件，在处理完上一个事件前，会阻塞
 func (s *Service) Flow(evt Event) {
-	s.evtQueue <- evt
+	// s.Log(log.Fields{
+	// 	"evt": evt,
+	// }).Debug("flow event")
+
+	s.evtQueue.Push(evt)
 }
 
 // Serve 开启服务
@@ -105,6 +111,7 @@ func (s *Service) Serve() {
 			s.Log(log.Fields{
 				"state": s.state,
 				"error": err,
+				"stack": (string)(debug.Stack()),
 			}).Error("stop serve")
 
 			evt := Event{
@@ -127,12 +134,11 @@ func (s *Service) Serve() {
 	}).Info("start serve")
 
 	for {
-		// 如果callback设置了 evt.Next，则优先流转evt.Next
 		if evt.Next != nil {
-			evt = *evt.Next
-		} else {
-			evt = <-s.evtQueue
+			s.Flow(*evt.Next)
 		}
+
+		evt = s.evtQueue.Pop().(Event)
 
 		if evt.Name == EvtNameStopFSM {
 			panic(ErrStopWithEvt)
@@ -174,7 +180,7 @@ func New(options map[string]interface{}) *Service {
 		state:           initState,
 		flowCallbackMap: make(map[CallbackKey]CallbackFunc),
 		flowMap:         make(map[flowKey]string),
-		evtQueue:        make(chan Event),
+		evtQueue:        queue.New(),
 	}
 
 	for _, desc := range flowDescList {

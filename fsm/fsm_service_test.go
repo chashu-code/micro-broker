@@ -13,6 +13,7 @@ func buildFlowDescList() FlowDescList {
 		{Evt: "one", SrcList: []string{"start"}, Dst: "want_two"},
 		{Evt: "two", SrcList: []string{"want_two"}, Dst: "want_three"},
 		{Evt: "three", SrcList: []string{"want_three"}, Dst: "end"},
+		{Evt: "bench", SrcList: []string{"start", "bench"}, Dst: "bench"},
 	}
 }
 
@@ -35,7 +36,7 @@ func buildCbDesc(isEmpty bool) CallbackDesc {
 
 func Benchmark_Flow(b *testing.B) {
 	opts := map[string]interface{}{
-		"name":         "test",
+		"name":         "bench",
 		"initState":    "start",
 		"flowDesc":     buildFlowDescList(),
 		"callbackDesc": buildCbDesc(true),
@@ -45,7 +46,7 @@ func Benchmark_Flow(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		evt := Event{
-			Name: "one",
+			Name: "bench",
 		}
 		fsm.Flow(evt)
 	}
@@ -76,12 +77,15 @@ func Test_NormalFlow(t *testing.T) {
 }
 
 func Test_FlowEvtNext(t *testing.T) {
+	wait := make(chan bool)
+
 	cbDesc := buildCbDesc(false)
 
 	cbDesc["enter-start"] = func(_ CallbackKey, evt *Event) error {
 		evt.Next = &Event{
 			Name: "one",
 		}
+		wait <- true
 		return nil
 	}
 
@@ -93,6 +97,9 @@ func Test_FlowEvtNext(t *testing.T) {
 	}
 	fsm := New(opts)
 	go fsm.Serve()
+
+	// wait enter-start callback
+	<-wait
 
 	names := []string{"two", "three"}
 	for _, name := range names {
