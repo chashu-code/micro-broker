@@ -63,6 +63,12 @@ type Event struct {
 	Next *Event
 }
 
+// EvtNext 设置 evt.Next， 并返回 nil
+func EvtNext(evt *Event, nameNext string) error {
+	evt.Next = &Event{Name: nameNext}
+	return nil
+}
+
 // Service 有限状态机服务结构
 type Service struct {
 	log.Able

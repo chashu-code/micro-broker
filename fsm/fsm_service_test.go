@@ -82,9 +82,7 @@ func Test_FlowEvtNext(t *testing.T) {
 	cbDesc := buildCbDesc(false)
 
 	cbDesc["enter-start"] = func(_ CallbackKey, evt *Event) error {
-		evt.Next = &Event{
-			Name: "one",
-		}
+		EvtNext(evt, "one")
 		wait <- true
 		return nil
 	}
