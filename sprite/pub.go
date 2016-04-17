@@ -3,6 +3,7 @@ package sprite
 import "time"
 
 import "github.com/chashu-code/micro-broker/fsm"
+
 import "github.com/chashu-code/micro-broker/adapter"
 import "github.com/chashu-code/micro-broker/log"
 import "github.com/imdario/mergo"
@@ -15,22 +16,26 @@ type Pub struct {
 	gatewayURI       string
 	intervalOverhaul int
 	intervalWaitMsg  int
-	msgQueue         chan Msg
+	msNetTimeout     int
 
 	timesOverhaul uint
+	msgQueueOp    *MsgQueueOp
 }
 
 // PubRun 构造并运行 Pub 精灵
 func PubRun(options map[string]interface{}) ISprite {
+	msgQueue := options["msgQueue"].(chan *Msg)
+
 	s := &Pub{
 		gatewayURI:   options["gatewayURI"].(string),
 		redisBuilder: options["redisBuilder"].(adapter.RediserBuilder),
-		msgQueue:     options["msgQueue"].(chan Msg),
 	}
 
 	s.addFlowDesc(options)
 	s.addCallbackDesc(options)
 	s.fillIntervals(options)
+
+	s.msgQueueOp = NewMsgQueueOp(msgQueue, s.intervalWaitMsg)
 
 	s.Run(options)
 	return s
@@ -46,11 +51,13 @@ func (s *Pub) fillIntervals(options map[string]interface{}) {
 	opDefault := map[string]interface{}{
 		"intervalOverhaul": 1000,
 		"intervalWaitMsg":  1000,
+		"msNetTimeout":     10000,
 	}
 	mergo.Merge(&options, opDefault)
 
 	s.intervalOverhaul = options["intervalOverhaul"].(int)
 	s.intervalWaitMsg = options["intervalWaitMsg"].(int)
+	s.msNetTimeout = options["msNetTimeout"].(int)
 }
 
 func (s *Pub) addFlowDesc(options map[string]interface{}) {
@@ -111,7 +118,12 @@ func (s *Pub) enterOverHaul(_ fsm.CallbackKey, evt *fsm.Event) error {
 	s.timesOverhaul++
 
 	if s.redis == nil || s.redis.LastCritical() != nil {
-		if s.redis, err = s.redisBuilder(s.gatewayURI); err != nil {
+		// 虽然目前使用的Redis库，在报错时，会自动关闭链接
+		// 但还是加一层确保
+		if s.redis != nil {
+			s.redis.Close()
+		}
+		if s.redis, err = s.redisBuilder(s.gatewayURI, s.msNetTimeout); err != nil {
 			s.Log(log.Fields{
 				"uri":   s.gatewayURI,
 				"error": err,
@@ -140,16 +152,14 @@ func (s *Pub) enterOverHaulFail(_ fsm.CallbackKey, evt *fsm.Event) error {
 }
 
 func (s *Pub) enterWaitMsg(_ fsm.CallbackKey, evt *fsm.Event) error {
-	select {
-	case msg := <-s.msgQueue:
+	if msg, ok := s.msgQueueOp.Pop(true); ok {
 		evt.Next = &fsm.Event{
 			Name: "Pub",
-			Args: []interface{}{&msg},
+			Args: []interface{}{msg},
 		}
 		return nil
-	case <-time.After(time.Duration(s.intervalWaitMsg) * time.Millisecond):
-		return fsm.EvtNext(evt, "Timeout")
 	}
+	return fsm.EvtNext(evt, "Timeout")
 }
 
 func (s *Pub) enterWaitMsgTimeout(_ fsm.CallbackKey, evt *fsm.Event) error {

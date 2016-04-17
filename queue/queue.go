@@ -1,4 +1,4 @@
-// Package quuee 实现队列功能
+// Package queue 实现队列功能
 package queue
 
 import "container/list"

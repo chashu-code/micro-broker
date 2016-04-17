@@ -8,6 +8,7 @@ import (
 
 	"github.com/chashu-code/micro-broker/adapter"
 	"github.com/chashu-code/micro-broker/fsm"
+	"github.com/mediocregopher/radix.v2/pubsub"
 	"github.com/mediocregopher/radix.v2/redis"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -37,7 +38,15 @@ func (r *PubMockedRediser) Close() error {
 	return nil
 }
 
-func (r *PubMockedRediser) Build(url string) (adapter.IRedis, error) {
+func (r *PubMockedRediser) Subscribe(channels ...interface{}) *pubsub.SubResp {
+	return nil
+}
+
+func (r *PubMockedRediser) Receive() (string, error) {
+	return "", nil
+}
+
+func (r *PubMockedRediser) Build(url string, _ int) (adapter.IRedis, error) {
 	if r.buildFailTimes > 0 {
 		r.buildFailTimes--
 		return r, errors.New("build error")
@@ -81,7 +90,7 @@ func Test_OverhaulTwice(t *testing.T) {
 		},
 	}
 
-	msgQ := make(chan Msg)
+	msgQ := make(chan *Msg)
 
 	options := map[string]interface{}{
 		"name":             "test",
@@ -129,7 +138,7 @@ func Test_AutoCloseWhenStop(t *testing.T) {
 		},
 	}
 
-	msgQ := make(chan Msg)
+	msgQ := make(chan *Msg)
 
 	options := map[string]interface{}{
 		"name":             "test",
@@ -183,7 +192,7 @@ func Test_WaitMsgTimeout(t *testing.T) {
 		},
 	}
 
-	msgQ := make(chan Msg)
+	msgQ := make(chan *Msg)
 
 	options := map[string]interface{}{
 		"name":             "test",
@@ -229,7 +238,7 @@ func Test_SendMsgSuccess(t *testing.T) {
 		}),
 	).Return(redis.NewRespSimple("OK"))
 
-	msgQ := make(chan Msg)
+	msgQ := make(chan *Msg)
 	states := []string{}
 
 	cbDesc := fsm.CallbackDesc{
@@ -262,7 +271,7 @@ func Test_SendMsgSuccess(t *testing.T) {
 	msg, err = MsgFromJSON([]byte(msgJSON))
 	msg.Channel = "test"
 	assert.Nil(t, err)
-	msgQ <- *msg
+	msgQ <- msg
 
 	msgJSON = `{
 		"action": "res",
@@ -272,14 +281,14 @@ func Test_SendMsgSuccess(t *testing.T) {
 	msg, err = MsgFromJSON([]byte(msgJSON))
 	msg.Channel = "test"
 	assert.Nil(t, err)
-	msgQ <- *msg
+	msgQ <- msg
 
-	msgQ <- *msg // 插入第三个，确保前两个msg被完全处理
+	msgQ <- msg // 插入第三个，确保前两个msg被完全处理
 
 	expectedFlow := "initial/overhaul/wait-msg/pub-msg/wait-msg/pub-msg/wait-msg"
 	stateFlow := strings.Join(states, "/")
-
 	assert.True(t, strings.HasPrefix(stateFlow, expectedFlow), "wrong flow: %v", stateFlow)
+
 	assert.Equal(t, "req", msgs[0].Action)
 	assert.Equal(t, "res", msgs[1].Action)
 }
@@ -304,7 +313,7 @@ func Test_OverhaulWhenSendError(t *testing.T) {
 		}),
 	).Return(respErr)
 
-	msgQ := make(chan Msg)
+	msgQ := make(chan *Msg)
 	states := []string{}
 
 	cbDesc := fsm.CallbackDesc{
@@ -337,8 +346,8 @@ func Test_OverhaulWhenSendError(t *testing.T) {
 	msg, err = MsgFromJSON([]byte(msgJSON))
 	msg.Channel = "test"
 	assert.Nil(t, err)
-	msgQ <- *msg
-	msgQ <- *msg
+	msgQ <- msg
+	msgQ <- msg
 
 	expectedFlow := "initial/overhaul/wait-msg/pub-msg/overhaul-fail/overhaul/wait-msg"
 	stateFlow := strings.Join(states, "/")
