@@ -265,7 +265,8 @@ func Test_SendMsgSuccess(t *testing.T) {
 
 	msgJSON := `{
 		"action": "req",
-		"from": "1@2@3"
+		"from": "1@2@3",
+		"service": "abc"
 	}`
 
 	msg, err = MsgFromJSON([]byte(msgJSON))
@@ -275,7 +276,8 @@ func Test_SendMsgSuccess(t *testing.T) {
 
 	msgJSON = `{
 		"action": "res",
-		"from": "1@2@3"
+		"from": "1@2@3",
+		"service": "abc"
 	}`
 
 	msg, err = MsgFromJSON([]byte(msgJSON))
@@ -340,7 +342,8 @@ func Test_OverhaulWhenSendError(t *testing.T) {
 
 	msgJSON := `{
 		"action": "req",
-		"from": "1@2@3"
+		"from": "1@2@3",
+		"service": "abc"
 	}`
 
 	msg, err = MsgFromJSON([]byte(msgJSON))

@@ -5,7 +5,7 @@ import "time"
 // MsgQueueOp  Goroutine 以 Queue 的方式操作 channel
 type MsgQueueOp struct {
 	C               chan *Msg
-	timer           *time.Timer
+	T               *time.Timer
 	durationTimeout time.Duration
 }
 
@@ -15,20 +15,25 @@ func NewMsgQueueOp(c chan *Msg, msTimeout int) *MsgQueueOp {
 
 	q := &MsgQueueOp{
 		C:               c,
-		timer:           time.NewTimer(durationTimeout),
+		T:               time.NewTimer(durationTimeout),
 		durationTimeout: durationTimeout,
 	}
 	return q
 }
 
+// ResetTimer 重置计时器
+func (q *MsgQueueOp) ResetTimer() {
+	q.T.Reset(q.durationTimeout)
+}
+
 // Push 添加一个队列成员
 func (q *MsgQueueOp) Push(msg *Msg, isBlock bool) bool {
 	if isBlock {
-		q.timer.Reset(q.durationTimeout)
+		q.ResetTimer()
 		select {
 		case q.C <- msg:
 			return true
-		case <-q.timer.C:
+		case <-q.T.C:
 			return false
 		}
 	}
@@ -44,11 +49,11 @@ func (q *MsgQueueOp) Push(msg *Msg, isBlock bool) bool {
 // Pop 返回一个队列成员
 func (q *MsgQueueOp) Pop(isBlock bool) (*Msg, bool) {
 	if isBlock {
-		q.timer.Reset(q.durationTimeout)
+		q.ResetTimer()
 		select {
 		case item := <-q.C:
 			return item, true
-		case <-q.timer.C:
+		case <-q.T.C:
 			return nil, false
 		}
 	}

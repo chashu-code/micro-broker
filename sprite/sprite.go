@@ -6,6 +6,11 @@ import (
 	"github.com/chashu-code/micro-broker/log"
 )
 
+const (
+	// SpriteInitState 精灵初始化状态值
+	SpriteInitState = "initial"
+)
+
 // Sprite 精灵结构
 type Sprite struct {
 	Srv    *fsm.Service

@@ -103,10 +103,6 @@ func (s *Service) Current() string {
 
 // Flow 流转事件，在处理完上一个事件前，会阻塞
 func (s *Service) Flow(evt Event) {
-	// s.Log(log.Fields{
-	// 	"evt": evt,
-	// }).Debug("flow event")
-
 	s.evtQueue.Push(evt)
 }
 

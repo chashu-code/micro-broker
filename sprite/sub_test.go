@@ -69,14 +69,16 @@ func (r *SubMockedRediser) Receive() (string, error) {
 	case "ReceiveSuccess", "PutMsgTimeout":
 		str := `{
       "action": "req",
-      "from": "%v"
+      "from": "%v",
+			"service": "hello"
     }`
 		r.msgSN++
 		data = fmt.Sprintf(str, r.msgSN)
 	case "ReceiveDecodeFail":
 		str := `{
       "action": "req",
-      "from": "%v"
+      "from": "%v",
+			"service": "hello"
     }`
 
 		r.msgSN++

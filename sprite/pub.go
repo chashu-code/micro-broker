@@ -19,7 +19,7 @@ type Pub struct {
 	msNetTimeout     int
 
 	timesOverhaul uint
-	msgQueueOp    *MsgQueueOp
+	mqOp          *MsgQueueOp
 }
 
 // PubRun 构造并运行 Pub 精灵
@@ -35,7 +35,7 @@ func PubRun(options map[string]interface{}) ISprite {
 	s.addCallbackDesc(options)
 	s.fillIntervals(options)
 
-	s.msgQueueOp = NewMsgQueueOp(msgQueue, s.intervalWaitMsg)
+	s.mqOp = NewMsgQueueOp(msgQueue, s.intervalWaitMsg)
 
 	s.Run(options)
 	return s
@@ -61,9 +61,9 @@ func (s *Pub) fillIntervals(options map[string]interface{}) {
 }
 
 func (s *Pub) addFlowDesc(options map[string]interface{}) {
-	options["initState"] = "initial"
+	options["initState"] = SpriteInitState
 	options["flowDesc"] = fsm.FlowDescList{
-		{Evt: "Overhaul", SrcList: []string{"initial", "overhaul-fail"}, Dst: "overhaul"},
+		{Evt: "Overhaul", SrcList: []string{SpriteInitState, "overhaul-fail"}, Dst: "overhaul"},
 		{Evt: "Fail", SrcList: []string{"overhaul", "pub-msg"}, Dst: "overhaul-fail"},
 		{Evt: "Success", SrcList: []string{"overhaul", "pub-msg"}, Dst: "wait-msg"},
 		{Evt: "Pub", SrcList: []string{"wait-msg"}, Dst: "pub-msg"},
@@ -152,7 +152,7 @@ func (s *Pub) enterOverHaulFail(_ fsm.CallbackKey, evt *fsm.Event) error {
 }
 
 func (s *Pub) enterWaitMsg(_ fsm.CallbackKey, evt *fsm.Event) error {
-	if msg, ok := s.msgQueueOp.Pop(true); ok {
+	if msg, ok := s.mqOp.Pop(true); ok {
 		evt.Next = &fsm.Event{
 			Name: "Pub",
 			Args: []interface{}{msg},

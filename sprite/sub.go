@@ -19,7 +19,7 @@ type Sub struct {
 	msPutTimeout     int
 	msNetTimeout     int
 
-	msgQueueOp *MsgQueueOp
+	mqOp *MsgQueueOp
 
 	Channels []string
 
@@ -40,7 +40,7 @@ func SubRun(options map[string]interface{}) ISprite {
 	s.fillIntervals(options)
 
 	msgQueue := options["msgQueue"].(chan *Msg)
-	s.msgQueueOp = NewMsgQueueOp(msgQueue, s.msPutTimeout)
+	s.mqOp = NewMsgQueueOp(msgQueue, s.msPutTimeout)
 
 	s.Run(options)
 	return s
@@ -67,9 +67,9 @@ func (s *Sub) fillIntervals(options map[string]interface{}) {
 }
 
 func (s *Sub) addFlowDesc(options map[string]interface{}) {
-	options["initState"] = "initial"
+	options["initState"] = SpriteInitState
 	options["flowDesc"] = fsm.FlowDescList{
-		{Evt: "Overhaul", SrcList: []string{"initial", "overhaul-fail"}, Dst: "overhaul"},
+		{Evt: "Overhaul", SrcList: []string{SpriteInitState, "overhaul-fail"}, Dst: "overhaul"},
 		{Evt: "Fail", SrcList: []string{"overhaul", "wait-msg"}, Dst: "overhaul-fail"},
 		{Evt: "Success", SrcList: []string{"overhaul", "put-msg"}, Dst: "wait-msg"},
 		{Evt: "Success", SrcList: []string{"wait-msg"}, Dst: "put-msg"},
@@ -189,7 +189,7 @@ func (s *Sub) enterPutMsg(_ fsm.CallbackKey, evt *fsm.Event) error {
 			if msg, err := MsgFromJSON(data); err == nil {
 				// 若置入队列超时，则直接丢弃该消息
 				// 客户端则作为超时响应
-				if !s.msgQueueOp.Push(msg, true) {
+				if !s.mqOp.Push(msg, true) {
 					s.timesPutTimeout++
 				}
 
