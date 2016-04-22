@@ -11,15 +11,19 @@ import "github.com/imdario/mergo"
 // Pub 服务结构
 type Pub struct {
 	Sprite
-	redis            adapter.IRedis
-	redisBuilder     adapter.RediserBuilder
-	gatewayURI       string
-	intervalOverhaul int
-	intervalWaitMsg  int
-	msNetTimeout     int
+	redis        adapter.IRedis
+	redisBuilder adapter.RediserBuilder
+	gatewayURI   string
+
+	msOverhaulInterval int
+	msWaitMsgTimeout   int
+	msNetTimeout       int
 
 	timesOverhaul uint
-	mqOp          *MsgQueueOp
+	timesPubed    uint
+
+	mqOp       *MsgQueueOp
+	msgWillPub *Msg
 }
 
 // PubRun 构造并运行 Pub 精灵
@@ -33,9 +37,9 @@ func PubRun(options map[string]interface{}) ISprite {
 
 	s.addFlowDesc(options)
 	s.addCallbackDesc(options)
-	s.fillIntervals(options)
+	s.fillMsTimeoutOpts(options)
 
-	s.mqOp = NewMsgQueueOp(msgQueue, s.intervalWaitMsg)
+	s.mqOp = NewMsgQueueOp(msgQueue, s.msWaitMsgTimeout)
 
 	s.Run(options)
 	return s
@@ -44,19 +48,20 @@ func PubRun(options map[string]interface{}) ISprite {
 // Report 汇报Pub信息
 func (s *Pub) Report() map[string]interface{} {
 	s.report["timesOverhaul"] = s.timesOverhaul
+	s.report["timesPubed"] = s.timesPubed
 	return s.report
 }
 
-func (s *Pub) fillIntervals(options map[string]interface{}) {
-	opDefault := map[string]interface{}{
-		"intervalOverhaul": 1000,
-		"intervalWaitMsg":  1000,
-		"msNetTimeout":     10000,
+func (s *Pub) fillMsTimeoutOpts(options map[string]interface{}) {
+	optDefault := map[string]interface{}{
+		"msOverhaulInterval": NetTimeoutDefault,
+		"msWaitMsgTimeout":   NetTimeoutDefault,
+		"msNetTimeout":       NetTimeoutDefault,
 	}
-	mergo.Merge(&options, opDefault)
+	mergo.Merge(&options, optDefault)
 
-	s.intervalOverhaul = options["intervalOverhaul"].(int)
-	s.intervalWaitMsg = options["intervalWaitMsg"].(int)
+	s.msOverhaulInterval = options["msOverhaulInterval"].(int)
+	s.msWaitMsgTimeout = options["msWaitMsgTimeout"].(int)
 	s.msNetTimeout = options["msNetTimeout"].(int)
 }
 
@@ -147,17 +152,14 @@ func (s *Pub) enterOverHaul(_ fsm.CallbackKey, evt *fsm.Event) error {
 }
 
 func (s *Pub) enterOverHaulFail(_ fsm.CallbackKey, evt *fsm.Event) error {
-	time.Sleep(time.Duration(s.intervalOverhaul) * time.Millisecond)
+	time.Sleep(time.Duration(s.msOverhaulInterval) * time.Millisecond)
 	return fsm.EvtNext(evt, "Overhaul")
 }
 
 func (s *Pub) enterWaitMsg(_ fsm.CallbackKey, evt *fsm.Event) error {
 	if msg, ok := s.mqOp.Pop(true); ok {
-		evt.Next = &fsm.Event{
-			Name: "Pub",
-			Args: []interface{}{msg},
-		}
-		return nil
+		s.msgWillPub = msg
+		return fsm.EvtNext(evt, "Pub")
 	}
 	return fsm.EvtNext(evt, "Timeout")
 }
@@ -167,12 +169,11 @@ func (s *Pub) enterWaitMsgTimeout(_ fsm.CallbackKey, evt *fsm.Event) error {
 }
 
 func (s *Pub) enterPubMsg(_ fsm.CallbackKey, evt *fsm.Event) error {
-	if len(evt.Args) == 1 {
-		if msg, ok := evt.Args[0].(*Msg); ok {
-			if !s.pubMsg(msg) {
-				return fsm.EvtNext(evt, "Fail")
-			}
+	if s.msgWillPub != nil {
+		if !s.pubMsg(s.msgWillPub) {
+			return fsm.EvtNext(evt, "Fail")
 		}
+		s.timesPubed++
 	}
 	return fsm.EvtNext(evt, "Success")
 }

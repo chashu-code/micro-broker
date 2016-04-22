@@ -14,12 +14,16 @@ const (
 	ActRES = "res"
 	// ActREG 消息行为 register
 	ActREG = "reg"
-	// ActCFG 消息行为 更新config
-	ActCFG = "config"
+	// ActSYNC 消息行为 更新config
+	ActSYNC = "config"
 	// ActRPT 消息系统为 汇报 broker状态信息
 	ActRPT = "report"
 	// ActJOB 消息行为 job 推送任务
 	ActJOB = "job"
+	// ActStart 消息行为 启动服务
+	ActStart = "start"
+	// ActRestart 消息行为 启动服务
+	ActRestart = "restart"
 
 	msgByteMax = 4 * 1024 * 1024
 )

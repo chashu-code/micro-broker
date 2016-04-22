@@ -10,6 +10,7 @@ import (
 	"github.com/chashu-code/micro-broker/fsm"
 	"github.com/mediocregopher/radix.v2/pubsub"
 	"github.com/mediocregopher/radix.v2/redis"
+	cmap "github.com/streamrail/concurrent-map"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -107,7 +108,7 @@ func (r *SubMockedRediser) Build(url string, _ int) (adapter.IRedis, error) {
 }
 
 // 顺利从redis获取消息，但解码有误
-func Test_ReceiveDecodeFail(t *testing.T) {
+func Test_SubRecvDecodeFail(t *testing.T) {
 	mRedis := &SubMockedRediser{}
 
 	mRedis.On("Close").Return()
@@ -125,24 +126,25 @@ func Test_ReceiveDecodeFail(t *testing.T) {
 		},
 	}
 
-	msgQ := make(chan *Msg)
+	msgQ := NewMsgQueueOp(make(chan *Msg), 1)
+	mapQueueOp := cmap.New()
+	mapQueueOp.Set("hello", msgQ)
 
 	options := map[string]interface{}{
-		"name":             "test",
-		"redisBuilder":     (adapter.RediserBuilder)(mRedis.Build),
-		"msgQueue":         msgQ,
-		"callbackDesc":     cbDesc,
-		"gatewayURI":       "ReceiveDecodeFail",
-		"intervalOverhaul": 1, // Millisecond
-		"msPutTimeout":     1, // Millisecond
-		"channels":         []string{"test"},
+		"name":               "test",
+		"redisBuilder":       (adapter.RediserBuilder)(mRedis.Build),
+		"mapQueueOp":         mapQueueOp,
+		"callbackDesc":       cbDesc,
+		"gatewayURI":         "ReceiveDecodeFail",
+		"msOverhaulInterval": 1, // Millisecond
+		"channels":           []string{"test"},
 	}
 
 	SubRun(options)
 
 	<-signalOK
 	<-signalOK
-	msg := <-msgQ
+	msg, _ := msgQ.Pop(true)
 	assert.Equal(t, "2", msg.From)
 
 	expectedFlow := "initial/overhaul/wait-msg/put-msg/wait-msg/put-msg"
@@ -151,8 +153,8 @@ func Test_ReceiveDecodeFail(t *testing.T) {
 	assert.True(t, strings.HasPrefix(stateFlow, expectedFlow), "wrong flow: %v", stateFlow)
 }
 
-// 顺利从redis获取消息，并及时推送至msgQueue
-func Test_ReceiveSuccess(t *testing.T) {
+// 顺利从redis获取消息，并及时推送至mapQueueOp
+func Test_SubRecvSuccess(t *testing.T) {
 	mRedis := &SubMockedRediser{}
 
 	mRedis.On("Close").Return()
@@ -165,24 +167,25 @@ func Test_ReceiveSuccess(t *testing.T) {
 		},
 	}
 
-	msgQ := make(chan *Msg)
+	msgQ := NewMsgQueueOp(make(chan *Msg), 1)
+	mapQueueOp := cmap.New()
+	mapQueueOp.Set("hello", msgQ)
 
 	options := map[string]interface{}{
-		"name":             "test",
-		"redisBuilder":     (adapter.RediserBuilder)(mRedis.Build),
-		"msgQueue":         msgQ,
-		"callbackDesc":     cbDesc,
-		"gatewayURI":       "ReceiveSuccess",
-		"intervalOverhaul": 1, // Millisecond
-		"msPutTimeout":     1, // Millisecond
-		"channels":         []string{"test"},
+		"name":               "test",
+		"redisBuilder":       (adapter.RediserBuilder)(mRedis.Build),
+		"mapQueueOp":         mapQueueOp,
+		"callbackDesc":       cbDesc,
+		"gatewayURI":         "ReceiveSuccess",
+		"msOverhaulInterval": 1, // Millisecond
+		"channels":           []string{"test"},
 	}
 
 	SubRun(options)
 
-	msg := <-msgQ
+	msg, _ := msgQ.Pop(true)
 	assert.Equal(t, "1", msg.From)
-	msg = <-msgQ
+	msg, _ = msgQ.Pop(true)
 	assert.Equal(t, "2", msg.From)
 
 	expectedFlow := "initial/overhaul/wait-msg/put-msg/wait-msg/put-msg"
@@ -191,8 +194,8 @@ func Test_ReceiveSuccess(t *testing.T) {
 	assert.True(t, strings.HasPrefix(stateFlow, expectedFlow), "wrong flow: %v", stateFlow)
 }
 
-// 顺利从redis获取消息，推送至msgQueue超时
-func Test_PutMsgTimeout(t *testing.T) {
+// 顺利从redis获取消息，推送至mapQueueOp超时
+func Test_SubPutMsgTimeout(t *testing.T) {
 	mRedis := &SubMockedRediser{}
 
 	mRedis.On("Close").Return()
@@ -210,17 +213,18 @@ func Test_PutMsgTimeout(t *testing.T) {
 		},
 	}
 
-	msgQ := make(chan *Msg)
+	msgQ := NewMsgQueueOp(make(chan *Msg), 1)
+	mapQueueOp := cmap.New()
+	mapQueueOp.Set("hello", msgQ)
 
 	options := map[string]interface{}{
-		"name":             "test",
-		"redisBuilder":     (adapter.RediserBuilder)(mRedis.Build),
-		"msgQueue":         msgQ,
-		"callbackDesc":     cbDesc,
-		"gatewayURI":       "PutMsgTimeout",
-		"intervalOverhaul": 1, // Millisecond
-		"msPutTimeout":     1, // Millisecond
-		"channels":         []string{"test"},
+		"name":               "test",
+		"redisBuilder":       (adapter.RediserBuilder)(mRedis.Build),
+		"mapQueueOp":         mapQueueOp,
+		"callbackDesc":       cbDesc,
+		"gatewayURI":         "PutMsgTimeout",
+		"msOverhaulInterval": 1, // Millisecond
+		"channels":           []string{"test"},
 	}
 
 	s := SubRun(options)
@@ -229,14 +233,14 @@ func Test_PutMsgTimeout(t *testing.T) {
 	<-signalOK
 	<-signalOK
 
-	assert.True(t, 1 < int(s.Report()["timesPutTimeout"].(uint)), "timesPutTimeout > 1")
+	assert.True(t, 1 < int(s.Report()["timesQueueOpTimeout"].(uint)), "timesQueueOpTimeout > 1")
 	expectedFlow := "initial/overhaul/wait-msg/put-msg/wait-msg/put-msg"
 	stateFlow := strings.Join(states, "/")
 	assert.True(t, strings.HasPrefix(stateFlow, expectedFlow), "wrong flow: %v", stateFlow)
 }
 
 // 从redis获取消息超时
-func Test_ReceiveTimeout(t *testing.T) {
+func Test_SubRecvTimeout(t *testing.T) {
 	mRedis := &SubMockedRediser{}
 
 	mRedis.On("Close").Return()
@@ -255,17 +259,19 @@ func Test_ReceiveTimeout(t *testing.T) {
 		},
 	}
 
-	msgQ := make(chan *Msg)
+	msgQ := NewMsgQueueOp(make(chan *Msg), 1)
+	mapQueueOp := cmap.New()
+	mapQueueOp.Set("hello", msgQ)
 
 	options := map[string]interface{}{
-		"name":             "test",
-		"redisBuilder":     (adapter.RediserBuilder)(mRedis.Build),
-		"msgQueue":         msgQ,
-		"callbackDesc":     cbDesc,
-		"gatewayURI":       "ReceiveTimeout",
-		"intervalOverhaul": 1, // Millisecond
-		"msPutTimeout":     1, // Millisecond
-		"channels":         []string{"test"},
+		"name":               "test",
+		"redisBuilder":       (adapter.RediserBuilder)(mRedis.Build),
+		"mapQueueOp":         mapQueueOp,
+		"callbackDesc":       cbDesc,
+		"gatewayURI":         "ReceiveTimeout",
+		"msOverhaulInterval": 1, // Millisecond
+		"msQueueOpTimeout":   1, // Millisecond
+		"channels":           []string{"test"},
 	}
 
 	SubRun(options)
@@ -301,17 +307,18 @@ func Test_SubFail(t *testing.T) {
 		},
 	}
 
-	msgQ := make(chan *Msg)
+	msgQ := NewMsgQueueOp(make(chan *Msg), 1)
+	mapQueueOp := cmap.New()
+	mapQueueOp.Set("hello", msgQ)
 
 	options := map[string]interface{}{
-		"name":             "test",
-		"redisBuilder":     (adapter.RediserBuilder)(mRedis.Build),
-		"msgQueue":         msgQ,
-		"callbackDesc":     cbDesc,
-		"gatewayURI":       "OverhaulTwice",
-		"intervalOverhaul": 1, // Millisecond
-		"msPutTimeout":     1, // Millisecond
-		"channels":         []string{"test"},
+		"name":               "test",
+		"redisBuilder":       (adapter.RediserBuilder)(mRedis.Build),
+		"mapQueueOp":         mapQueueOp,
+		"callbackDesc":       cbDesc,
+		"gatewayURI":         "OverhaulTwice",
+		"msOverhaulInterval": 1, // Millisecond
+		"channels":           []string{"test"},
 	}
 
 	s := SubRun(options)

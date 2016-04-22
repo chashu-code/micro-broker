@@ -7,24 +7,28 @@ import (
 	"github.com/chashu-code/micro-broker/fsm"
 	"github.com/chashu-code/micro-broker/log"
 	"github.com/imdario/mergo"
+	cmap "github.com/streamrail/concurrent-map"
 )
 
 // Sub 服务结构
 type Sub struct {
 	Sprite
-	redis            adapter.IRedis
-	redisBuilder     adapter.RediserBuilder
-	gatewayURI       string
-	intervalOverhaul int
-	msPutTimeout     int
-	msNetTimeout     int
+	redis        adapter.IRedis
+	redisBuilder adapter.RediserBuilder
+	gatewayURI   string
 
-	mqOp *MsgQueueOp
+	msOverhaulInterval int
+	msQueueOpTimeout   int
+	msNetTimeout       int
+
+	mapQueueOp cmap.ConcurrentMap
+	msgWillPut *Msg
 
 	Channels []string
 
-	timesOverhaul   uint
-	timesPutTimeout uint
+	timesOverhaul       uint
+	timesQueueOpTimeout uint
+	timesSubed          uint
 }
 
 // SubRun 构造并运行 Sub 精灵
@@ -37,11 +41,9 @@ func SubRun(options map[string]interface{}) ISprite {
 
 	s.addFlowDesc(options)
 	s.addCallbackDesc(options)
-	s.fillIntervals(options)
+	s.fillMsTimeoutOpts(options)
 
-	msgQueue := options["msgQueue"].(chan *Msg)
-	s.mqOp = NewMsgQueueOp(msgQueue, s.msPutTimeout)
-
+	s.mapQueueOp = options["mapQueueOp"].(cmap.ConcurrentMap)
 	s.Run(options)
 	return s
 }
@@ -49,20 +51,19 @@ func SubRun(options map[string]interface{}) ISprite {
 // Report 汇报Sub信息
 func (s *Sub) Report() map[string]interface{} {
 	s.report["timesOverhaul"] = s.timesOverhaul
-	s.report["timesPutTimeout"] = s.timesPutTimeout
+	s.report["timesQueueOpTimeout"] = s.timesQueueOpTimeout
+	s.report["timesSubed"] = s.timesSubed
 	return s.report
 }
 
-func (s *Sub) fillIntervals(options map[string]interface{}) {
+func (s *Sub) fillMsTimeoutOpts(options map[string]interface{}) {
 	opDefault := map[string]interface{}{
-		"intervalOverhaul": 1000,
-		"msPutTimeout":     1000,
-		"msNetTimeout":     10000,
+		"msOverhaulInterval": NetTimeoutDefault,
+		"msNetTimeout":       NetTimeoutDefault,
 	}
 	mergo.Merge(&options, opDefault)
 
-	s.intervalOverhaul = options["intervalOverhaul"].(int)
-	s.msPutTimeout = options["msPutTimeout"].(int)
+	s.msOverhaulInterval = options["msOverhaulInterval"].(int)
 	s.msNetTimeout = options["msNetTimeout"].(int)
 }
 
@@ -155,7 +156,7 @@ func (s *Sub) enterOverHaul(_ fsm.CallbackKey, evt *fsm.Event) error {
 }
 
 func (s *Sub) enterOverHaulFail(_ fsm.CallbackKey, evt *fsm.Event) error {
-	time.Sleep(time.Duration(s.intervalOverhaul) * time.Millisecond)
+	time.Sleep(time.Duration(s.msOverhaulInterval) * time.Millisecond)
 	return fsm.EvtNext(evt, "Overhaul")
 }
 
@@ -163,10 +164,15 @@ func (s *Sub) enterWaitMsg(_ fsm.CallbackKey, evt *fsm.Event) error {
 	data, err := s.redis.Receive()
 	switch err {
 	case nil:
-		evt.Next = &fsm.Event{
-			Name: "Success",
-			Args: []interface{}{[]byte(data)},
+		if msg, errDecode := MsgFromJSON([]byte(data)); errDecode == nil {
+			s.msgWillPut = msg
+		} else {
+			s.Log(log.Fields{
+				"error": errDecode,
+			}).Info("sub msg decode json fail")
+			s.msgWillPut = nil
 		}
+		return fsm.EvtNext(evt, "Success")
 	case adapter.ErrReceiveTimeout:
 		return fsm.EvtNext(evt, "Timeout")
 	default:
@@ -175,8 +181,6 @@ func (s *Sub) enterWaitMsg(_ fsm.CallbackKey, evt *fsm.Event) error {
 		}).Error("wait sub msg fail")
 		return fsm.EvtNext(evt, "Fail")
 	}
-
-	return nil
 }
 
 func (s *Sub) enterWaitMsgTimeout(_ fsm.CallbackKey, evt *fsm.Event) error {
@@ -184,19 +188,44 @@ func (s *Sub) enterWaitMsgTimeout(_ fsm.CallbackKey, evt *fsm.Event) error {
 }
 
 func (s *Sub) enterPutMsg(_ fsm.CallbackKey, evt *fsm.Event) error {
-	if len(evt.Args) == 1 {
-		if data, ok := evt.Args[0].([]byte); ok {
-			if msg, err := MsgFromJSON(data); err == nil {
-				// 若置入队列超时，则直接丢弃该消息
-				// 客户端则作为超时响应
-				if !s.mqOp.Push(msg, true) {
-					s.timesPutTimeout++
-				}
+	msg := s.msgWillPut
 
-			} else {
-				s.Log(log.Fields{
-					"error": err,
-				}).Error("sub msg decode json fail")
+	if msg != nil {
+		var key string
+
+		switch msg.Action {
+		case ActREQ:
+			// 推入相关的 Service Queue
+			key = msg.Service
+		case ActRES:
+			// 推入相关的 Terminal Queue
+			_, tid, _ := msg.btrIDS()
+			key = tid
+		case ActJOB:
+			// 推入相关的 Job Queue
+			key = KeyJobQueue
+		case ActSYNC:
+			// 推入相关的 Sync Queue
+			key = KeySyncQueue
+		default:
+			// 意料之外的消息，跳过
+			s.Log(log.Fields{
+				"action": msg.Action,
+			}).Info("error sub msg action")
+		}
+
+		if key == "" { // 未能解析出适合的key，跳过
+			return fsm.EvtNext(evt, "Success")
+		}
+
+		// 仅推入存在的 Msg Queue
+		if v, ok := s.mapQueueOp.Get(key); ok {
+			if mqOp, ok := v.(*MsgQueueOp); ok {
+				if !mqOp.Push(msg, true) {
+					s.timesQueueOpTimeout++
+				} else {
+					s.timesSubed++
+				}
 			}
 		}
 	}

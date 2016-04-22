@@ -55,7 +55,7 @@ func (r *PubMockedRediser) Build(url string, _ int) (adapter.IRedis, error) {
 }
 
 // 循环检测2次，才成功
-func Test_OverhaulTwice(t *testing.T) {
+func Test_PubOverhaulTwice(t *testing.T) {
 	mRedis := &PubMockedRediser{
 		buildFailTimes: 1,
 		cmdFailTimes:   1,
@@ -93,13 +93,13 @@ func Test_OverhaulTwice(t *testing.T) {
 	msgQ := make(chan *Msg)
 
 	options := map[string]interface{}{
-		"name":             "test",
-		"redisBuilder":     (adapter.RediserBuilder)(mRedis.Build),
-		"msgQueue":         msgQ,
-		"callbackDesc":     cbDesc,
-		"gatewayURI":       "OverhaulTwice",
-		"intervalOverhaul": 1,    // Millisecond
-		"intervalWaitMsg":  1000, // Millisecond
+		"name":               "test",
+		"redisBuilder":       (adapter.RediserBuilder)(mRedis.Build),
+		"msgQueue":           msgQ,
+		"callbackDesc":       cbDesc,
+		"gatewayURI":         "OverhaulTwice",
+		"msOverhaulInterval": 1,    // Millisecond
+		"msWaitMsgTimeout":   1000, // Millisecond
 	}
 
 	s := PubRun(options)
@@ -113,7 +113,7 @@ func Test_OverhaulTwice(t *testing.T) {
 }
 
 // 停止，可自动关闭连接
-func Test_AutoCloseWhenStop(t *testing.T) {
+func Test_PubAutoCloseWhenStop(t *testing.T) {
 	mRedis := &PubMockedRediser{}
 
 	resp := redis.NewRespSimple("PONG")
@@ -141,13 +141,13 @@ func Test_AutoCloseWhenStop(t *testing.T) {
 	msgQ := make(chan *Msg)
 
 	options := map[string]interface{}{
-		"name":             "test",
-		"redisBuilder":     (adapter.RediserBuilder)(mRedis.Build),
-		"msgQueue":         msgQ,
-		"callbackDesc":     cbDesc,
-		"gatewayURI":       "AutoCloseWhenStop",
-		"intervalOverhaul": 1, // Millisecond
-		"intervalWaitMsg":  1, // Millisecond
+		"name":               "test",
+		"redisBuilder":       (adapter.RediserBuilder)(mRedis.Build),
+		"msgQueue":           msgQ,
+		"callbackDesc":       cbDesc,
+		"gatewayURI":         "AutoCloseWhenStop",
+		"msOverhaulInterval": 1, // Millisecond
+		"msWaitMsgTimeout":   1, // Millisecond
 	}
 
 	s := PubRun(options)
@@ -168,7 +168,7 @@ func Test_AutoCloseWhenStop(t *testing.T) {
 }
 
 // 等待消息超时
-func Test_WaitMsgTimeout(t *testing.T) {
+func Test_PubWaitMsgTimeout(t *testing.T) {
 	mRedis := &PubMockedRediser{}
 
 	resp := redis.NewRespSimple("PONG")
@@ -195,13 +195,13 @@ func Test_WaitMsgTimeout(t *testing.T) {
 	msgQ := make(chan *Msg)
 
 	options := map[string]interface{}{
-		"name":             "test",
-		"redisBuilder":     (adapter.RediserBuilder)(mRedis.Build),
-		"msgQueue":         msgQ,
-		"callbackDesc":     cbDesc,
-		"gatewayURI":       "WaitMsgTimeout(",
-		"intervalOverhaul": 1, // Millisecond
-		"intervalWaitMsg":  1, // Millisecond
+		"name":               "test",
+		"redisBuilder":       (adapter.RediserBuilder)(mRedis.Build),
+		"msgQueue":           msgQ,
+		"callbackDesc":       cbDesc,
+		"gatewayURI":         "WaitMsgTimeout(",
+		"msOverhaulInterval": 1, // Millisecond
+		"msWaitMsgTimeout":   1, // Millisecond
 	}
 
 	PubRun(options)
@@ -219,7 +219,7 @@ func Test_WaitMsgTimeout(t *testing.T) {
 }
 
 // 通过检测，并且发送收到的消息
-func Test_SendMsgSuccess(t *testing.T) {
+func Test_PubSendMsgSuccess(t *testing.T) {
 	msgs := []*Msg{}
 
 	mRedis := &PubMockedRediser{}
@@ -249,13 +249,13 @@ func Test_SendMsgSuccess(t *testing.T) {
 	}
 
 	options := map[string]interface{}{
-		"name":             "test",
-		"redisBuilder":     (adapter.RediserBuilder)(mRedis.Build),
-		"msgQueue":         msgQ,
-		"callbackDesc":     cbDesc,
-		"gatewayURI":       "AutoCloseWhenStop",
-		"intervalOverhaul": 1, // Millisecond
-		"intervalWaitMsg":  1, // Millisecond
+		"name":               "test",
+		"redisBuilder":       (adapter.RediserBuilder)(mRedis.Build),
+		"msgQueue":           msgQ,
+		"callbackDesc":       cbDesc,
+		"gatewayURI":         "AutoCloseWhenStop",
+		"msOverhaulInterval": 1, // Millisecond
+		"msWaitMsgTimeout":   1, // Millisecond
 	}
 
 	PubRun(options)
@@ -296,7 +296,7 @@ func Test_SendMsgSuccess(t *testing.T) {
 }
 
 // 发送消息失败（Redis），重新检测
-func Test_OverhaulWhenSendError(t *testing.T) {
+func Test_PubOverhaulWhenSendError(t *testing.T) {
 	mRedis := &PubMockedRediser{}
 	mRedis.On("Close").Return()
 	mRedis.On("Cmd", "PING").Return(redis.NewRespSimple("PONG"))
@@ -326,13 +326,13 @@ func Test_OverhaulWhenSendError(t *testing.T) {
 	}
 
 	options := map[string]interface{}{
-		"name":             "test",
-		"redisBuilder":     (adapter.RediserBuilder)(mRedis.Build),
-		"msgQueue":         msgQ,
-		"callbackDesc":     cbDesc,
-		"gatewayURI":       "AutoCloseWhenStop",
-		"intervalOverhaul": 1, // Millisecond
-		"intervalWaitMsg":  1, // Millisecond
+		"name":               "test",
+		"redisBuilder":       (adapter.RediserBuilder)(mRedis.Build),
+		"msgQueue":           msgQ,
+		"callbackDesc":       cbDesc,
+		"gatewayURI":         "AutoCloseWhenStop",
+		"msOverhaulInterval": 1, // Millisecond
+		"msWaitMsgTimeout":   1, // Millisecond
 	}
 
 	PubRun(options)
