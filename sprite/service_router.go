@@ -1,7 +1,10 @@
 package sprite
 
-import "strings"
-import "sort"
+import (
+	"fmt"
+	"sort"
+	"strings"
+)
 
 // IServiceRouter 路由接口
 type IServiceRouter interface {
@@ -35,4 +38,37 @@ func PickBrokersFromStr(str string) []string {
 	bs := strings.Split(str, ",")
 	sort.Strings(bs)
 	return bs
+}
+
+// PickRouterFromMap 分析Map构造适合的 IServiceRouter，无法构造返回nil
+func PickRouterFromMap(hs map[string]interface{}) (sr IServiceRouter, err error) {
+	defer func() {
+		if v := recover(); v != nil {
+			err = fmt.Errorf("%v", v)
+		}
+		return
+	}()
+
+	if v, ok := hs["type"]; ok {
+		var routeMap map[string]interface{}
+
+		rtype, ok := v.(string)
+
+		if v, ok = hs["route"]; ok {
+			routeMap, _ = v.(map[string]interface{})
+		}
+
+		if len(routeMap) > 0 {
+			switch rtype {
+			case "random":
+				sr = NewRandomSRouter(routeMap)
+			}
+		}
+	}
+
+	if sr == nil {
+		err = fmt.Errorf("wrong route map data")
+	}
+
+	return
 }

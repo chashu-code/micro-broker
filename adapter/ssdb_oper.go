@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+// base on https://github.com/ssdb/gossdb
+
 // SSDBOper SSDB协议操作者
 type SSDBOper struct {
 	sock            net.Conn

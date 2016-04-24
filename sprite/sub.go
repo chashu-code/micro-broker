@@ -23,6 +23,7 @@ type Sub struct {
 
 	mapQueueOp cmap.ConcurrentMap
 	msgWillPut *Msg
+	opExecer   *MsgQueueOpExecer
 
 	Channels []string
 
@@ -38,6 +39,8 @@ func SubRun(options map[string]interface{}) ISprite {
 		redisBuilder: options["redisBuilder"].(adapter.RediserBuilder),
 		Channels:     options["channels"].([]string),
 	}
+
+	s.opExecer = NewMsgQueueOpExecer()
 
 	s.addFlowDesc(options)
 	s.addCallbackDesc(options)
@@ -205,8 +208,8 @@ func (s *Sub) enterPutMsg(_ fsm.CallbackKey, evt *fsm.Event) error {
 			// 推入相关的 Job Queue
 			key = KeyJobQueue
 		case ActSYNC:
-			// 推入相关的 Sync Queue
-			key = KeySyncQueue
+			// 推入 Broker Queue
+			key = KeyBrokerQueue
 		default:
 			// 意料之外的消息，跳过
 			s.Log(log.Fields{
@@ -221,7 +224,7 @@ func (s *Sub) enterPutMsg(_ fsm.CallbackKey, evt *fsm.Event) error {
 		// 仅推入存在的 Msg Queue
 		if v, ok := s.mapQueueOp.Get(key); ok {
 			if mqOp, ok := v.(*MsgQueueOp); ok {
-				if !mqOp.Push(msg, true) {
+				if !s.opExecer.Push(mqOp, msg, true) {
 					s.timesQueueOpTimeout++
 				} else {
 					s.timesSubed++

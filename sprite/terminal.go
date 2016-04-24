@@ -1,7 +1,10 @@
 package sprite
 
 import (
+	"crypto/md5"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"strconv"
 	"strings"
@@ -13,39 +16,44 @@ import (
 	cmap "github.com/streamrail/concurrent-map"
 )
 
-var (
-	// ErrInvalidNextCmd 错误的Next指令
-	ErrInvalidNextCmd = errors.New("invalid next cmd")
-)
-
 // Terminal 终端处理精灵
 type Terminal struct {
 	Sprite
 
-	MQInOp  *MsgQueueOp
-	MQOutOp *MsgQueueOp
+	mqInOp  *MsgQueueOp
+	mqOutOp *MsgQueueOp
 
-	msQueueOpTimeout int
-	msNetTimeout     int
-	conn             *adapter.SSDBOper
-	mapInRouter      cmap.ConcurrentMap
-	mapOutRouter     cmap.ConcurrentMap
-	mapConfig        cmap.ConcurrentMap
-	services         []string
-	countNext        int
-	msgsRouting      []*Msg
-	bid              string
+	msInQueueOpTimeout int
+	msNetTimeout       int
+	conn               *adapter.SSDBOper
 
-	timesRouteFail    uint
-	timesOutOpTimeout uint
+	mapOutRouter cmap.ConcurrentMap
+	mapQueueOp   cmap.ConcurrentMap
+	mapConfig    cmap.ConcurrentMap
+
+	services  []string
+	countNext int
+	cmds      []string
+	bid       string
+	rid       uint
+
+	timesProcessTimeout uint
+	timesOutOpTimeout   uint
+
+	opExecer *MsgQueueOpExecer
 }
 
 // Report 汇报信息
 func (s *Terminal) Report() map[string]interface{} {
-	s.report["timesRouteFail"] = s.timesRouteFail
+	s.report["timesProcessTimeout"] = s.timesProcessTimeout
 	s.report["timesOutOpTimeout"] = s.timesOutOpTimeout
 
 	return s.report
+}
+
+// RID 返回当前 rid 的字符串
+func (s *Terminal) RID() string {
+	return strconv.Itoa(int(s.rid))
 }
 
 // RegServices 返回注册的服务列表
@@ -57,61 +65,64 @@ func (s *Terminal) RegServices() []string {
 func TerminalRun(options map[string]interface{}) *Terminal {
 	s := &Terminal{}
 
-	s.fillIntervals(options)
+	s.opExecer = NewMsgQueueOpExecer()
+
+	s.fillMsTimeoutOpts(options)
 	s.addFlowDesc(options)
 	s.addCallbackDesc(options)
 
 	s.conn = adapter.NewSSDBOper(options["conn"].(net.Conn), s.msNetTimeout)
-	s.mapInRouter = options["mapInRouter"].(cmap.ConcurrentMap)
 	s.mapOutRouter = options["mapOutRouter"].(cmap.ConcurrentMap)
+	s.mapQueueOp = options["mapQueueOp"].(cmap.ConcurrentMap)
 	s.mapConfig = options["mapConfig"].(cmap.ConcurrentMap)
 
-	mq := options["msgOutQueue"].(chan *Msg)
-	s.MQOutOp = NewMsgQueueOp(mq, s.msQueueOpTimeout)
-
-	mq = make(chan *Msg, 10)
-	s.MQInOp = NewMsgQueueOp(mq, s.msQueueOpTimeout)
-
-	if v, ok := s.mapConfig.Get("brokerName"); ok {
+	if v, ok := s.mapConfig.Get(KeyBrokerName); ok {
 		s.bid = v.(string)
+	} else {
+		panic(errors.New("terminal need brokerName with config"))
 	}
 
-	s.Run(options)
+	if v, ok := s.mapQueueOp.Get(KeyPubQueue); ok {
+		mq := v.(*MsgQueueOp)
+		s.mqOutOp = mq
+	} else {
+		panic(errors.New("terminal need pub MsgQueueOp"))
+	}
 
+	mq := make(chan *Msg, MsgQueueSizeDefault)
+	s.mqInOp = NewMsgQueueOp(mq, s.msInQueueOpTimeout)
+
+	s.Run(options)
 	return s
 }
 
-func (s *Terminal) fillIntervals(options map[string]interface{}) {
+func (s *Terminal) fillMsTimeoutOpts(options map[string]interface{}) {
 	opDefault := map[string]interface{}{
-		"msQueueOpTimeout": 1000,
-		"msNetTimeout":     1000,
+		"msInQueueOpTimeout": NetTimeoutDefault,
+		"msNetTimeout":       NetTimeoutDefault,
 	}
 	mergo.Merge(&options, opDefault)
 
-	s.msQueueOpTimeout = options["msQueueOpTimeout"].(int)
+	s.msInQueueOpTimeout = options["msInQueueOpTimeout"].(int)
 	s.msNetTimeout = options["msNetTimeout"].(int)
 }
 
 func (s *Terminal) addFlowDesc(options map[string]interface{}) {
 	options["initState"] = SpriteInitState
 	options["flowDesc"] = fsm.FlowDescList{
-		{Evt: "Reg", SrcList: []string{SpriteInitState}, Dst: "registering"},
-		{Evt: "Fail", SrcList: []string{"receiving"}, Dst: "failed"},
-		{Evt: "Route", SrcList: []string{"receiving"}, Dst: "routing"},
-		{Evt: "Push", SrcList: []string{"routing"}, Dst: "pushing"},
-		{Evt: "Success", SrcList: []string{"registering", "pushing"}, Dst: "receiving"},
-		{Evt: "Retry", SrcList: []string{"failed"}, Dst: "receiving"},
+		{Evt: "Timeout", SrcList: []string{"receiving"}, Dst: "timeout"},
+		{Evt: "Process", SrcList: []string{"receiving"}, Dst: "prccessing"},
+		{Evt: "Success", SrcList: []string{SpriteInitState, "prccessing"}, Dst: "receiving"},
+		{Evt: "Retry", SrcList: []string{"timeout"}, Dst: "receiving"},
 	}
 }
 
 func (s *Terminal) addCallbackDesc(options map[string]interface{}) {
 	desc := fsm.CallbackDesc{
-		"enter-initial":     s.enterInitial,
-		"enter-registering": s.enterRegistering,
-		"enter-receiving":   s.enterReceiving,
-		"enter-routing":     s.enterRouteing,
-		"enter-pushing":     s.enterPushing,
-		"enter-failed":      s.enterFailed,
+		"enter-initial":    s.enterInitial,
+		"enter-receiving":  s.enterReceiving,
+		"enter-prccessing": s.enterProcessing,
+		"enter-timeout":    s.enterTimeout,
 	}
 
 	if opDesc, ok := options["callbackDesc"]; ok {
@@ -128,11 +139,10 @@ func (s *Terminal) addCallbackDesc(options map[string]interface{}) {
 
 	desc["stop"] = func(key fsm.CallbackKey, evt *fsm.Event) error {
 		s.conn.Close()
-
 		// 取消注册
-		for _, service := range s.services {
-			s.mapInRouter.Remove(service)
-		}
+		s.mapQueueOp.Remove(s.Srv.Name)
+
+		s.Log(log.Fields{}).Info("terminal stop")
 
 		if cbStop != nil {
 			return cbStop(key, evt)
@@ -143,200 +153,244 @@ func (s *Terminal) addCallbackDesc(options map[string]interface{}) {
 	options["callbackDesc"] = desc
 }
 
-func (s *Terminal) enterFailed(_ fsm.CallbackKey, evt *fsm.Event) error {
+func (s *Terminal) enterTimeout(_ fsm.CallbackKey, evt *fsm.Event) error {
 	return fsm.EvtNext(evt, "Retry")
 }
 
 func (s *Terminal) enterInitial(_ fsm.CallbackKey, evt *fsm.Event) error {
-	return fsm.EvtNext(evt, "Reg")
-}
+	s.Log(log.Fields{}).Info("terminal start")
 
-func (s *Terminal) enterRegistering(_ fsm.CallbackKey, evt *fsm.Event) error {
-	_, msgs, err := s.nextFromSocket()
-	if err != nil {
-		panic(err)
-	}
-
-	msg := msgs[0]
-
-	if msg.Action != "reg" {
-		panic(ErrNeedRegMsg)
-	}
-
-	if msg.Service == "" {
-		panic(ErrInvalidRegMsg)
-	}
-
-	s.services = strings.Split(msg.Service, ",")
-
-	// 注册 terminal 监听相关服务
-	for _, service := range s.services {
-		s.mapInRouter.Set(service, s)
-	}
-
-	// 推送配置信息
-	msg = &Msg{
-		Action: ActCFG,
-	}
-	s.fillConfigWithMsg(msg)
-
-	if data, err := msg.ToJSON(); err != nil {
-		panic(err)
-	} else {
-		err = s.conn.Send("msgs", string(data))
-		if err != nil {
-			panic(err)
-		}
-	}
+	// 创建监听应答的 msg queue op
+	s.mapQueueOp.Set(s.Srv.Name, s.mqInOp)
 
 	return fsm.EvtNext(evt, "Success")
 }
 
 func (s *Terminal) enterReceiving(_ fsm.CallbackKey, evt *fsm.Event) error {
-	count, msgs, err := s.nextFromSocket()
+	cmds, err := s.conn.Recv()
 
 	if err != nil {
 		// 仅超时，可做失败重试
 		if isTimeout(err) {
-			return fsm.EvtNext(evt, "Fail")
+			return fsm.EvtNext(evt, "Timeout")
 		}
 		panic(err)
 	}
 
-	s.countNext = count
-	s.msgsRouting = msgs
+	s.cmds = cmds
 
-	return fsm.EvtNext(evt, "Route")
+	return fsm.EvtNext(evt, "Process")
 }
 
-func (s *Terminal) enterRouteing(_ fsm.CallbackKey, evt *fsm.Event) error {
-	var canRoute bool
+func (s *Terminal) enterProcessing(_ fsm.CallbackKey, evt *fsm.Event) error {
+	var cmdsRes []interface{}
 
-	for _, msg := range s.msgsRouting {
-		switch msg.Action {
-		case ActREQ, ActJOB:
-			// update msg.from
-			_, _, rid := msg.btrIDS()
-			msg.updateFrom(s.bid, s.Srv.Name, rid)
+	cmds := s.cmds
 
-			canRoute = s.routeReq(msg)
-		case ActRES:
-			canRoute = s.routeRes(msg)
+	// 收到的指令，必须有2个元素以上
+	if len(cmds) > 1 {
+		switch cmds[0] {
+		case ActREG: // 注册监听
+			cmdsRes = s.processReg(cmds[1:])
+		case ActSub: // 监听服务
+			cmdsRes = s.processSub(cmds[1:])
+		case ActREQ, ActJOB: // 发送请求
+			cmdsRes = s.processReq(cmds[0], cmds[1:])
+		case ActRES: // 发送应答
+			cmdsRes = s.processRes(cmds[1:])
+		case ActSYNC: // 处理同步
+			cmdsRes = s.processSync(cmds[1:])
 		default:
-			canRoute = false
+			cmdsRes = []interface{}{"err", fmt.Sprintf("wrong cmd %s", cmds[0])}
 		}
-
-		if canRoute {
-			if ok := s.MQOutOp.Push(msg, true); !ok {
-				s.timesOutOpTimeout++
-			}
-		} else {
-			s.timesRouteFail++
-		}
-	}
-	return fsm.EvtNext(evt, "Push")
-}
-
-func (s *Terminal) enterPushing(_ fsm.CallbackKey, evt *fsm.Event) error {
-	args := []interface{}{"msgs"}
-
-	for i := 0; i < s.countNext; i++ {
-		msg, ok := s.MQInOp.Pop(true)
-		if !ok { // 超时
-			break
-		}
-		// 若为更新配置，则填充相关配置信息
-		if msg.Action == ActCFG {
-			s.fillConfigWithMsg(msg)
-		}
-
-		if data, err := msg.ToJSON(); err == nil {
-			args = append(args, string(data))
-		}
+	} else {
+		cmdsRes = []interface{}{"err", fmt.Sprintf("wrong cmds: %s", cmds)}
 	}
 
-	if len(args) == 1 {
-		args[0] = "empty"
-	}
+	// if "empty" != cmdsRes[0] {
+	// 	s.Log(log.Fields{
+	// 		"cmds": cmds,
+	// 		"res":  cmdsRes,
+	// 	}).Info("terminal receiving cmds")
+	// }
 
-	// 发送失败，则直接停止
-	if err := s.conn.Send(args...); err != nil {
+	if err := s.conn.Send(cmdsRes...); err != nil {
 		panic(err)
 	}
 
 	return fsm.EvtNext(evt, "Success")
 }
 
-func (s *Terminal) routeReq(msg *Msg) bool {
+func (s *Terminal) processReq(cmd string, args []string) []interface{} {
+	var res []interface{}
+
+	if len(args) < 1 {
+		return append(res, "err", fmt.Sprintf("cmd %s need args: msg", cmd))
+	}
+
+	msg, err := MsgFromJSON([]byte(args[0]))
+	if err != nil {
+		return append(res, "err", fmt.Sprintf("%s msg decode error: %s", cmd, err))
+	}
+
 	if v, ok := s.mapOutRouter.Get(msg.Service); ok {
-		if router, ok := v.(IServiceRouter); ok {
-			router.Route(msg, []string{})
-			return true
+		// 获取服务路由
+		var router IServiceRouter
+		if router, ok = v.(IServiceRouter); ok {
+			// 获取在线broker列表，并设置msg.Channel为适合的broker
+			var brokersOnline []string
+			if v, ok = s.mapConfig.Get(KeyBrokersOnline); ok {
+				brokersOnline, _ = v.([]string)
+			}
+			router.Route(msg, brokersOnline)
+
+			// 设置适合的 msg.From
+			s.rid++
+			msg.updateFrom(s.bid, s.Srv.Name, s.RID())
+
+			// 推送消息
+			if !s.opExecer.Push(s.mqOutOp, msg, true) {
+				// 推送队列超时，队列已满
+				return append(res, "err", "pub queue is full")
+			}
+
+			// 监听应答
+			for {
+				msg, ok = s.opExecer.Pop(s.mqInOp, true)
+				if !ok {
+					var keys []string
+					for item := range s.mapQueueOp.IterBuffered() {
+						keys = append(keys, item.Key)
+					}
+					s.Log(log.Fields{
+						"mapQueueOp": keys,
+					}).Info("timeout??")
+					return append(res, "err", "wait res timeout")
+				}
+
+				_, _, rid := msg.btrIDS()
+				if rid != s.RID() {
+					continue
+				}
+
+				data, err := msg.ToJSON()
+				if err != nil {
+					return append(res, "err", fmt.Sprintf("res msg json encode error: %s", err))
+				}
+
+				return append(res, "ok", data)
+			}
 		}
 	}
-	return false
+
+	return append(res, "err", fmt.Sprintf("unfound service router of %s", msg.Service))
+
 }
 
-func (s *Terminal) routeRes(msg *Msg) bool {
+func (s *Terminal) processRes(args []string) []interface{} {
+	var res []interface{}
+
+	if len(args) < 1 {
+		return append(res, "err", "cmd res need args: msg")
+	}
+
+	msg, err := MsgFromJSON([]byte(args[0]))
+	if err != nil {
+		return append(res, "err", fmt.Sprintf("res msg decode error: %s", err))
+	}
+
 	bid, _, _ := msg.btrIDS()
 	if bid == "" {
-		return false
+		return append(res, "err", "res msg's From need set bid")
 	}
 	msg.Channel = bid
-	return true
+
+	// 推送消息
+	if !s.opExecer.Push(s.mqOutOp, msg, true) {
+		// 推送队列超时，队列已满
+		return append(res, "err", "pub queue is full")
+	}
+
+	return append(res, "ok")
 }
 
-func (s *Terminal) fillConfigWithMsg(msg *Msg) {
-	if msg.Data == nil {
-		msg.Data = make(map[string]interface{})
+func (s *Terminal) processReg(args []string) []interface{} {
+	var res []interface{}
+
+	if len(args) < 1 {
+		return append(res, "err", "cmd reg need args: services_str")
 	}
 
-	if msg.From == "" {
-		msg.From = s.Srv.Name
-	}
-
-	config := make(map[string]interface{})
-
-	for _, service := range s.services {
-		if v, ok := s.mapConfig.Get(service); ok {
-			config[service] = v
+	subToken := fmt.Sprintf("%x", md5.Sum([]byte(args[0])))
+	if v, ok := s.mapConfig.Get(subToken); ok {
+		if _, ok = v.(*MultiMsgQueueOpPoper); ok {
+			return append(res, "ok", subToken)
 		}
 	}
 
-	msg.Data["config"] = config
+	services := strings.Split(args[0], ",")
+	poper := NewMultiMsgQueueOpPoper(s.mapQueueOp, services)
+
+	s.mapConfig.Set(subToken, poper)
+
+	return append(res, "ok", subToken)
 }
 
-func (s *Terminal) nextFromSocket() (count int, msgs []*Msg, err error) {
-	var datas []string
-	datas, err = s.conn.Recv()
+func (s *Terminal) processSub(args []string) []interface{} {
+	var res []interface{}
+
+	if len(args) < 1 {
+		return append(res, "err", "cmd sub need args: sub_token")
+	}
+
+	subToken := args[0]
+
+	var poper *MultiMsgQueueOpPoper
+
+	if v, ok := s.mapConfig.Get(subToken); ok {
+		poper, _ = v.(*MultiMsgQueueOpPoper)
+	}
+
+	if poper == nil {
+		return append(res, "err", "unregistered sub_token")
+	}
+
+	msg, ok := poper.Pop()
+	if !ok {
+		return append(res, "empty")
+	}
+
+	data, err := msg.ToJSON()
 	if err != nil {
-		return
+		return append(res, "err", fmt.Sprintf("req msg json encode error: %s", err))
 	}
 
-	if len(datas) < 2 || datas[0] != "next" {
-		err = ErrInvalidNextCmd
-		return
+	return append(res, "ok", data)
+}
+
+func (s *Terminal) processSync(args []string) []interface{} {
+	var res []interface{}
+
+	if len(args) < 2 {
+		return append(res, "err", "cmd sync need args: name, version")
 	}
 
-	count, err = strconv.Atoi(datas[1])
-	if err != nil {
-		return
-	}
-
-	if len(datas) > 2 {
-		for _, data := range datas[2:] {
-			msg, errDecode := MsgFromJSON([]byte(data))
-			if errDecode != nil {
-				s.Log(log.Fields{
-					"error": errDecode,
-					"json":  data,
-				}).Info("terminal receive invalid msg json")
-				continue
+	name, ver := args[0], args[1]
+	if v, ok := s.mapConfig.Get(KeyVerConf); ok {
+		var verConf string
+		if verConf, ok = v.(string); ok {
+			if verConf != ver { // 版本有差异
+				if v, ok = s.mapConfig.Get(name); ok {
+					data, err := json.Marshal(v)
+					if err != nil {
+						return append(res, "err", fmt.Sprintf("config encode error: %s", err))
+					}
+					return append(res, "ok", verConf, data)
+				}
 			}
-			msgs = append(msgs, msg)
 		}
 	}
-	return
+	return append(res, "newest")
 }
 
 func isTimeout(err error) bool {

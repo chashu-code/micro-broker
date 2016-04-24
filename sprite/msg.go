@@ -15,15 +15,16 @@ const (
 	// ActREG 消息行为 register
 	ActREG = "reg"
 	// ActSYNC 消息行为 更新config
-	ActSYNC = "config"
+	ActSYNC = "sync"
 	// ActRPT 消息系统为 汇报 broker状态信息
 	ActRPT = "report"
 	// ActJOB 消息行为 job 推送任务
 	ActJOB = "job"
 	// ActStart 消息行为 启动服务
 	ActStart = "start"
-	// ActRestart 消息行为 启动服务
-	ActRestart = "restart"
+
+	// ActSub 消息行为 监听服务
+	ActSub = "sub"
 
 	msgByteMax = 4 * 1024 * 1024
 )
@@ -44,7 +45,6 @@ type Msg struct {
 	Channel string
 	Service string
 	Nav     string
-	IsInput bool
 	Data    map[string]interface{}
 }
 
@@ -80,6 +80,9 @@ func MsgFromJSON(data []byte) (msg *Msg, err error) {
 
 // ToJSON 序列化 Msg
 func (msg *Msg) ToJSON() ([]byte, error) {
+	if msg.Data == nil {
+		msg.Data = map[string]interface{}{}
+	}
 	msg.Data["from"] = msg.From
 	msg.Data["action"] = msg.Action
 	msg.Data["service"] = msg.Service

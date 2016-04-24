@@ -144,7 +144,7 @@ func Test_SubRecvDecodeFail(t *testing.T) {
 
 	<-signalOK
 	<-signalOK
-	msg, _ := msgQ.Pop(true)
+	msg := <-msgQ.C
 	assert.Equal(t, "2", msg.From)
 
 	expectedFlow := "initial/overhaul/wait-msg/put-msg/wait-msg/put-msg"
@@ -183,9 +183,9 @@ func Test_SubRecvSuccess(t *testing.T) {
 
 	SubRun(options)
 
-	msg, _ := msgQ.Pop(true)
+	msg := <-msgQ.C
 	assert.Equal(t, "1", msg.From)
-	msg, _ = msgQ.Pop(true)
+	msg = <-msgQ.C
 	assert.Equal(t, "2", msg.From)
 
 	expectedFlow := "initial/overhaul/wait-msg/put-msg/wait-msg/put-msg"

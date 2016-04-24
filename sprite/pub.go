@@ -23,6 +23,7 @@ type Pub struct {
 	timesPubed    uint
 
 	mqOp       *MsgQueueOp
+	opExecer   *MsgQueueOpExecer
 	msgWillPub *Msg
 }
 
@@ -34,6 +35,8 @@ func PubRun(options map[string]interface{}) ISprite {
 		gatewayURI:   options["gatewayURI"].(string),
 		redisBuilder: options["redisBuilder"].(adapter.RediserBuilder),
 	}
+
+	s.opExecer = NewMsgQueueOpExecer()
 
 	s.addFlowDesc(options)
 	s.addCallbackDesc(options)
@@ -157,7 +160,7 @@ func (s *Pub) enterOverHaulFail(_ fsm.CallbackKey, evt *fsm.Event) error {
 }
 
 func (s *Pub) enterWaitMsg(_ fsm.CallbackKey, evt *fsm.Event) error {
-	if msg, ok := s.mqOp.Pop(true); ok {
+	if msg, ok := s.opExecer.Pop(s.mqOp, true); ok {
 		s.msgWillPub = msg
 		return fsm.EvtNext(evt, "Pub")
 	}

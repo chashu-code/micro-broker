@@ -1,458 +1,359 @@
 package sprite
 
 import (
-	"strings"
+	"fmt"
+	"strconv"
 	"testing"
 	"time"
 
+	"github.com/chashu-code/micro-broker/adapter"
 	cmap "github.com/streamrail/concurrent-map"
 
-	"github.com/chashu-code/micro-broker/adapter"
-	"github.com/chashu-code/micro-broker/fsm"
 	mconn "github.com/jordwest/mock-conn"
 	"github.com/stretchr/testify/assert"
 )
 
 // 初始化部分 ===========
-// 注册失败(错误的信息推送)，则自动关闭
-func Test_TerminalRegFail(t *testing.T) {
-	states := []string{}
+func Test_TerminalInitSuccess(t *testing.T) {
 
-	hasStop := false
-
-	cbDesc := fsm.CallbackDesc{
-		"enter-*": func(key fsm.CallbackKey, evt *fsm.Event) error {
-			states = append(states, key.State)
-			return nil
-		},
-		"stop": func(_ fsm.CallbackKey, evt *fsm.Event) error {
-			hasStop = true
-			return nil
-		},
-	}
-
-	msgQ := make(chan *Msg)
-
-	mc := mconn.NewConn()
-	client := adapter.NewSSDBOper(mc.Client, 1)
-
-	options := map[string]interface{}{
-		"name":             "1",
-		"msgOutQueue":      msgQ,
-		"callbackDesc":     cbDesc,
-		"msQueueOpTimeout": 1, // Millisecond
-		"msNetTimeout":     1,
-		"conn":             mc.Server,
-		"mapInRouter":      cmap.New(),
-		"mapOutRouter":     cmap.New(),
-		"mapConfig":        cmap.New(),
-	}
-
-	TerminalRun(options)
-
-	msgStr := `{
-      "action": "res",
-      "service": "hi",
-      "from": "1"
-  }`
-
-	client.Send("next", "1", msgStr)
-	time.Sleep(time.Millisecond * time.Duration(1))
-	expectedFlow := "initial/registering"
-	stateFlow := strings.Join(states, "/")
-	assert.True(t, strings.HasPrefix(stateFlow, expectedFlow), "wrong flow: %v", stateFlow)
-	assert.True(t, hasStop, "terminal must be stop")
-}
-
-// 注册成功，推送配置信息
-func Test_TerminalRegedSuccess(t *testing.T) {
-	states := []string{}
-
-	cbDesc := fsm.CallbackDesc{
-		"enter-*": func(key fsm.CallbackKey, evt *fsm.Event) error {
-			states = append(states, key.State)
-			return nil
-		},
-	}
-
-	msgQ := make(chan *Msg)
-
-	mc := mconn.NewConn()
-	client := adapter.NewSSDBOper(mc.Client, 1)
-
-	mapInRouter := cmap.New()
-
-	options := map[string]interface{}{
-		"name":             "1",
-		"msgOutQueue":      msgQ,
-		"callbackDesc":     cbDesc,
-		"msQueueOpTimeout": 1, // Millisecond
-		"msNetTimeout":     1,
-		"conn":             mc.Server,
-		"mapInRouter":      mapInRouter,
-		"mapOutRouter":     cmap.New(),
-		"mapConfig":        cmap.New(),
-	}
-
-	TerminalRun(options)
-
-	msgStr := `{
-	    "action": "reg",
-	    "service": "s1,s2",
-	    "from": "1"
-	}`
-
-	client.Send("next", "1", msgStr)
-
-	args, _ := client.Recv()
-
-	assert.Equal(t, "msgs", args[0])
-
-	msg, _ := MsgFromJSON([]byte(args[1]))
-
-	assert.Equal(t, ActCFG, msg.Action)
-	assert.Contains(t, msg.Data, "config")
-
-	time.Sleep(time.Duration(1) * time.Millisecond)
-
-	expectedFlow := "initial/registering/receiving"
-	stateFlow := strings.Join(states, "/")
-	assert.True(t, strings.HasPrefix(stateFlow, expectedFlow), "wrong flow: %v", stateFlow)
-
-	// 检测注册服务是否成功
-	_, ok := mapInRouter.Get("s1")
-	assert.True(t, ok, "terminal has reg s1 service")
-
-	_, ok = mapInRouter.Get("s2")
-	assert.True(t, ok, "terminal has reg s2 service")
-}
-
-// 推送 ================
-// 推送超时
-
-// 推送配置
-func Test_TerminalPushConfig(t *testing.T) {
-	states := []string{}
-
-	cbDesc := fsm.CallbackDesc{
-		"enter-*": func(key fsm.CallbackKey, evt *fsm.Event) error {
-			states = append(states, key.State)
-			return nil
-		},
-	}
-
-	msgQ := make(chan *Msg, 1)
-
-	mc := mconn.NewConn()
-	client := adapter.NewSSDBOper(mc.Client, 1)
-
-	options := map[string]interface{}{
-		"name":             "t1",
-		"msgOutQueue":      msgQ,
-		"callbackDesc":     cbDesc,
-		"msQueueOpTimeout": 1, // Millisecond
-		"msNetTimeout":     1,
-		"conn":             mc.Server,
-		"mapInRouter":      cmap.New(),
-		"mapOutRouter":     cmap.New(),
-		"mapConfig":        cmap.New(),
-	}
-
-	s := TerminalRun(options)
-
-	msgConfg := &Msg{
-		Action: ActCFG,
-		From:   "center",
-	}
-
-	s.MQInOp.Push(msgConfg, true)
-
-	msgStr := `{
-	    "action": "reg",
-	    "service": "s1,s2",
-	    "from": "1"
-	}`
-
-	client.Send("next", "1", msgStr)
-
-	args, _ := client.Recv()
-
-	assert.Equal(t, "msgs", args[0])
-
-	msg, _ := MsgFromJSON([]byte(args[1]))
-
-	assert.Equal(t, ActCFG, msg.Action)
-	assert.Equal(t, "t1", msg.From)
-	assert.Contains(t, msg.Data, "config")
-
-	// pass receving
-	client.Send("next", "1")
-
-	time.Sleep(time.Duration(1) * time.Millisecond)
-
-	args, _ = client.Recv()
-
-	assert.Equal(t, "msgs", args[0])
-
-	msg, _ = MsgFromJSON([]byte(args[1]))
-
-	assert.Equal(t, ActCFG, msg.Action)
-	assert.Equal(t, "center", msg.From)
-	assert.Contains(t, msg.Data, "config")
-
-	expectedFlow := "initial/registering/receiving/routing/pushing"
-	stateFlow := strings.Join(states, "/")
-	assert.True(t, strings.HasPrefix(stateFlow, expectedFlow), "wrong flow: %v", stateFlow)
-}
-
-// 推送其它
-func Test_TerminalPushOther(t *testing.T) {
-	states := []string{}
-
-	cbDesc := fsm.CallbackDesc{
-		"enter-*": func(key fsm.CallbackKey, evt *fsm.Event) error {
-			states = append(states, key.State)
-			return nil
-		},
-	}
-
-	msgQ := make(chan *Msg, 1)
-
-	mc := mconn.NewConn()
-	client := adapter.NewSSDBOper(mc.Client, 1)
-
-	options := map[string]interface{}{
-		"name":             "t1",
-		"msgOutQueue":      msgQ,
-		"callbackDesc":     cbDesc,
-		"msQueueOpTimeout": 1, // Millisecond
-		"msNetTimeout":     1,
-		"conn":             mc.Server,
-		"mapInRouter":      cmap.New(),
-		"mapOutRouter":     cmap.New(),
-		"mapConfig":        cmap.New(),
-	}
-
-	s := TerminalRun(options)
-
-	msgStr := `{
-	    "action": "req",
-	    "service": "hi",
-	    "from": "1",
-      "params": {
-        "a": "abcde"
-      }
-	}`
-
-	msgPush, _ := MsgFromJSON([]byte(msgStr))
-
-	s.MQInOp.Push(msgPush, true)
-
-	msgStr = `{
-	    "action": "reg",
-	    "service": "hi",
-	    "from": "1"
-	}`
-
-	client.Send("next", "1", msgStr)
-	// recv config
-	client.Recv()
-	// pass receving
-	client.Send("next", "1")
-
-	time.Sleep(time.Duration(1) * time.Millisecond)
-
-	// recv push msg
-	args, _ := client.Recv()
-	assert.Equal(t, "msgs", args[0])
-
-	msg, _ := MsgFromJSON([]byte(args[1]))
-
-	assert.Equal(t, ActREQ, msg.Action)
-	assert.Equal(t, "1", msg.From)
-	assert.Contains(t, msg.Data, "params")
-
-	_, ok := msg.Data["params"].(map[string]interface{})
-	assert.True(t, ok, "params except  map[string]interface{}, but is %T", msg.Data["params"])
-
-	expectedFlow := "initial/registering/receiving/routing/pushing"
-	stateFlow := strings.Join(states, "/")
-	assert.True(t, strings.HasPrefix(stateFlow, expectedFlow), "wrong flow: %v", stateFlow)
-}
-
-// 接收 ================
-// 接收，请求路由、可、超时、不可
-func Test_TerminalReqRoute(t *testing.T) {
-	states := []string{}
-
-	cbDesc := fsm.CallbackDesc{
-		"enter-*": func(key fsm.CallbackKey, evt *fsm.Event) error {
-			states = append(states, key.State)
-			return nil
-		},
-	}
-
-	msgQ := make(chan *Msg)
-	mapConfig := cmap.New()
-	mapConfig.Set("brokerName", "bfrom")
-
+	mapQueueOp := cmap.New()
 	mapOutRouter := cmap.New()
-	routeMap := map[string]interface{}{
-		"*": "btarget",
-	}
-	mapOutRouter.Set("hi", NewRandomSRouter(routeMap))
+	mapConfig := cmap.New()
+
+	mapConfig.Set(KeyBrokerName, "brokerName")
+	mapQueueOp.Set(KeyPubQueue, NewMsgQueueOp(make(chan *Msg), 1))
 
 	mc := mconn.NewConn()
-	client := adapter.NewSSDBOper(mc.Client, 1)
-
+	tid := "#Ttest"
 	options := map[string]interface{}{
-		"name":             "t1",
-		"msgOutQueue":      msgQ,
-		"callbackDesc":     cbDesc,
-		"msQueueOpTimeout": 1, // Millisecond
-		"msNetTimeout":     1,
-		"conn":             mc.Server,
-		"mapInRouter":      cmap.New(),
-		"mapOutRouter":     mapOutRouter,
-		"mapConfig":        mapConfig,
+		"name":         tid,
+		"conn":         mc.Server,
+		"mapQueueOp":   mapQueueOp,
+		"mapOutRouter": mapOutRouter,
+		"mapConfig":    mapConfig,
 	}
 
-	s := TerminalRun(options)
+	TerminalRun(options)
 
-	msgStr := `{
-	    "action": "reg",
-	    "service": "s1,s2",
-	    "from": "1"
-	}`
-
-	client.Send("next", "1", msgStr)
-	// recv config
-	client.Recv()
-
-	msgStr = `{
-	    "action": "req",
-	    "service": "hi",
-	    "from": "1",
-      "params": {
-        "a": "abcde"
-      }
-	}`
-
-	client.Send("next", "1", msgStr, msgStr)
-	msg := <-msgQ
-	assert.Equal(t, ActREQ, msg.Action)
-	assert.Equal(t, "btarget", msg.Channel)
-	assert.Equal(t, "bfrom@t1@1", msg.From)
-
-	// route push MQOutOp timeout 1 times
 	time.Sleep(time.Millisecond)
 
-	// recv empty
-	args, _ := client.Recv()
-	assert.Equal(t, "empty", args[0])
-
-	msgStr = `{
-	    "action": "req",
-	    "service": "unfound",
-	    "from": "1",
-      "params": {
-        "a": "abcde"
-      }
-	}`
-
-	client.Send("next", "1", msgStr)
-	// recv empty
-	client.Recv()
-
-	r := s.Report()
-	assert.Equal(t, 1, int(r["timesRouteFail"].(uint)))
-	assert.Equal(t, 1, int(r["timesOutOpTimeout"].(uint)))
-
-	expectedFlow := "initial/registering/receiving/routing/pushing/receiving/routing/pushing"
-	stateFlow := strings.Join(states, "/")
-	assert.True(t, strings.HasPrefix(stateFlow, expectedFlow), "wrong flow: %v", stateFlow)
-
+	assert.True(t, mapQueueOp.Has(tid))
 }
 
-// 接收，应答路由、可、超时、不可
-func Test_TerminalResRoute(t *testing.T) {
-	states := []string{}
-
-	cbDesc := fsm.CallbackDesc{
-		"enter-*": func(key fsm.CallbackKey, evt *fsm.Event) error {
-			states = append(states, key.State)
-			return nil
-		},
-	}
-
-	msgQ := make(chan *Msg)
-	mapConfig := cmap.New()
-	mapConfig.Set("brokerName", "bfrom")
+// Reg ===============
+func Test_TerminalReg(t *testing.T) {
+	mapQueueOp := cmap.New()
 	mapOutRouter := cmap.New()
+	mapConfig := cmap.New()
+
+	mapConfig.Set(KeyBrokerName, "brokerName")
+	mapQueueOp.Set(KeyPubQueue, NewMsgQueueOp(make(chan *Msg), 1))
 
 	mc := mconn.NewConn()
-	client := adapter.NewSSDBOper(mc.Client, 1)
+	tid := "#Ttest"
 
 	options := map[string]interface{}{
-		"name":             "t1",
-		"msgOutQueue":      msgQ,
-		"callbackDesc":     cbDesc,
-		"msQueueOpTimeout": 1, // Millisecond
-		"msNetTimeout":     1,
-		"conn":             mc.Server,
-		"mapInRouter":      cmap.New(),
-		"mapOutRouter":     mapOutRouter,
-		"mapConfig":        mapConfig,
+		"name":               tid,
+		"conn":               mc.Server,
+		"mapQueueOp":         mapQueueOp,
+		"mapOutRouter":       mapOutRouter,
+		"mapConfig":          mapConfig,
+		"msInQueueOpTimeout": 1,
 	}
 
-	s := TerminalRun(options)
+	TerminalRun(options)
 
-	msgStr := `{
-	    "action": "reg",
-	    "service": "s1,s2",
-	    "from": "1"
-	}`
+	client := adapter.NewSSDBOper(mc.Client, 1)
 
-	client.Send("next", "1", msgStr)
-	// recv config
-	client.Recv()
+	assert.False(t, mapQueueOp.Has("one"))
+	assert.False(t, mapQueueOp.Has("two"))
 
-	msgFailStr := `{
-	    "action": "res",
-      "service": "",
-	    "code": 0,
-	    "from": "1",
-      "data": {
-        "a": "abcde"
-      }
-	}`
+	res, _ := client.Cmd("reg", "one,two")
+	assert.Equal(t, "ok", res[0])
+	subToken := res[1]
 
-	msgOkStr := `{
-	    "action": "res",
-      "service": "",
-	    "code": 0,
-	    "from": "b1@t1@1",
-      "data": {
-        "a": "abcde"
-      }
-	}`
+	assert.True(t, mapConfig.Has(subToken))
+	assert.True(t, mapQueueOp.Has("one"))
+	assert.True(t, mapQueueOp.Has("two"))
+}
 
-	client.Send("next", "1", msgFailStr, msgOkStr, msgOkStr)
-	msg := <-msgQ // only recv one msg, will timeout 1
-	assert.Equal(t, ActRES, msg.Action)
-	assert.Equal(t, "b1", msg.Channel)
-	assert.Equal(t, "b1@t1@1", msg.From)
+// Sub ===============
+func Test_TerminalSub(t *testing.T) {
+	mapQueueOp := cmap.New()
+	mapOutRouter := cmap.New()
+	mapConfig := cmap.New()
 
-	// recv empty
-	args, _ := client.Recv()
-	assert.Equal(t, "empty", args[0])
+	mapConfig.Set(KeyBrokerName, "brokerName")
+	mapQueueOp.Set(KeyPubQueue, NewMsgQueueOp(make(chan *Msg), 1))
 
-	r := s.Report()
-	assert.Equal(t, 1, int(r["timesRouteFail"].(uint)))
-	assert.Equal(t, 1, int(r["timesOutOpTimeout"].(uint)))
+	mc := mconn.NewConn()
+	tid := "#Ttest"
 
-	expectedFlow := "initial/registering/receiving/routing/pushing"
-	stateFlow := strings.Join(states, "/")
-	assert.True(t, strings.HasPrefix(stateFlow, expectedFlow), "wrong flow: %v", stateFlow)
+	options := map[string]interface{}{
+		"name":               tid,
+		"conn":               mc.Server,
+		"mapQueueOp":         mapQueueOp,
+		"mapOutRouter":       mapOutRouter,
+		"mapConfig":          mapConfig,
+		"msInQueueOpTimeout": 1,
+	}
 
+	TerminalRun(options)
+
+	client := adapter.NewSSDBOper(mc.Client, 2)
+
+	// 未注册
+	res, _ := client.Cmd("sub", "error subToken")
+	assert.Equal(t, "err", res[0])
+
+	// 注册前，先加入一个mqOp
+	mqTwo := NewMsgQueueOp(make(chan *Msg, 1), 1)
+	mapQueueOp.Set("two", mqTwo)
+	// 注册
+	res, _ = client.Cmd("reg", "one,two")
+	assert.Equal(t, "ok", res[0])
+	subToken := res[1]
+
+	// 未有消息
+	res, _ = client.Cmd("sub", subToken)
+	assert.Equal(t, "empty", res[0])
+
+	// 有消息
+	v, _ := mapQueueOp.Get("one")
+	mqOne := v.(*MsgQueueOp)
+	msg1 := &Msg{
+		Action:  ActREQ,
+		Service: "one",
+		From:    "a@b@c",
+	}
+
+	msg2 := &Msg{
+		Action:  ActREQ,
+		Service: "two",
+		From:    "a@b@c",
+	}
+
+	mqOne.C <- msg1
+	mqTwo.C <- msg2
+
+	for i := 0; i < 2; i++ {
+		// 有缓冲的 channel send 后，未必能马上 recv 到
+		for {
+			res, _ = client.Cmd("sub", subToken)
+			if res[0] == "empty" {
+				continue
+			}
+			break
+		}
+
+		assert.Equal(t, "ok", res[0])
+		msgRes, _ := MsgFromJSON([]byte(res[1]))
+		assert.Contains(t, []string{"one", "two"}, msgRes.Service)
+	}
+}
+
+// Res ===============
+func Test_TerminalRes(t *testing.T) {
+	mapQueueOp := cmap.New()
+	mapOutRouter := cmap.New()
+	mapConfig := cmap.New()
+
+	mqOpPub := NewMsgQueueOp(make(chan *Msg, 1), 1)
+	mapConfig.Set(KeyBrokerName, "brokerName")
+	mapQueueOp.Set(KeyPubQueue, mqOpPub)
+
+	mc := mconn.NewConn()
+	tid := "#Ttest"
+
+	options := map[string]interface{}{
+		"name":               tid,
+		"conn":               mc.Server,
+		"mapQueueOp":         mapQueueOp,
+		"mapOutRouter":       mapOutRouter,
+		"mapConfig":          mapConfig,
+		"msInQueueOpTimeout": 1,
+	}
+
+	TerminalRun(options)
+
+	client := adapter.NewSSDBOper(mc.Client, 1)
+
+	// 错误的from
+	msg := &Msg{
+		Action: ActRES,
+	}
+	data, _ := msg.ToJSON()
+	res, _ := client.Cmd("res", data)
+	assert.Equal(t, "err", res[0])
+	assert.Contains(t, res[1], "bid")
+
+	// fix From
+	msg.From = "b1@t1@r1"
+	data, _ = msg.ToJSON()
+
+	// 已满
+	mqOpPub.C <- msg // 满仓
+	res, _ = client.Cmd("res", data)
+	assert.Equal(t, "err", res[0])
+	assert.Contains(t, res[1], "full")
+
+	// 正常回应
+	<-mqOpPub.C // 清仓
+	res, _ = client.Cmd("res", data)
+	assert.Equal(t, "ok", res[0])
+	msgPub := <-mqOpPub.C
+	assert.Equal(t, msg.From, msgPub.From)
+}
+
+// Req ===============
+func Test_TerminalReq(t *testing.T) {
+	mapOutRouter := cmap.New()
+	router := NewRandomSRouter(map[string]interface{}{
+		"*": "b1",
+	})
+	mapOutRouter.Set("hello", router)
+
+	mapConfig := cmap.New()
+	mapConfig.Set(KeyBrokerName, "brokerName")
+
+	mapQueueOp := cmap.New()
+	mqOpPub := NewMsgQueueOp(make(chan *Msg, 1), 1)
+	mapQueueOp.Set(KeyPubQueue, mqOpPub)
+
+	mc := mconn.NewConn()
+	tid := "#Ttest"
+
+	options := map[string]interface{}{
+		"name":               tid,
+		"conn":               mc.Server,
+		"mapQueueOp":         mapQueueOp,
+		"mapOutRouter":       mapOutRouter,
+		"mapConfig":          mapConfig,
+		"msInQueueOpTimeout": 1,
+	}
+
+	ts := TerminalRun(options)
+
+	client := adapter.NewSSDBOper(mc.Client, 1)
+
+	// 无相关处理路由
+	msg := &Msg{
+		Action:  ActREQ,
+		Service: "unfound",
+	}
+	data, _ := msg.ToJSON()
+	res, _ := client.Cmd("req", data)
+	assert.Equal(t, "err", res[0])
+	assert.Contains(t, res[1], "unfound service router")
+
+	// fix Service
+	msg.Service = "hello"
+
+	// 推送队列满
+	mqOpPub.C <- msg // 满仓
+	data, _ = msg.ToJSON()
+	res, _ = client.Cmd("req", data)
+	assert.Equal(t, "err", res[0])
+	assert.Contains(t, res[1], "full")
+
+	// 获取应答超时
+	<-mqOpPub.C // 清仓
+	res, _ = client.Cmd("req", data)
+	assert.Equal(t, "err", res[0])
+	assert.Contains(t, res[1], "timeout")
+
+	// 获取应答（哪怕有过期res）
+	go func() {
+		v, _ := mapQueueOp.Get(tid)
+		mqOp := v.(*MsgQueueOp)
+
+		// 错误
+		mqOp.C <- &Msg{
+			Action: ActRES,
+			From:   "wrong_rid",
+		}
+
+		// 过期
+		mqOp.C <- &Msg{
+			Action: ActRES,
+			From:   "b1@t1@" + ts.RID(),
+		}
+
+		// 有效
+		rid, _ := strconv.Atoi(ts.RID())
+		rid++
+		mqOp.C <- &Msg{
+			Action: ActRES,
+			From:   fmt.Sprintf("b1@t2@%v", rid),
+		}
+	}()
+
+	<-mqOpPub.C // 清仓
+	res, _ = client.Cmd("req", data)
+	assert.Equal(t, "ok", res[0])
+	msgRes, _ := MsgFromJSON([]byte(res[1]))
+	assert.Contains(t, msgRes.From, "b1@t2@")
+
+	// job ~ 和 req 一样的处理逻辑
+	msg.Action = ActJOB
+	data, _ = msg.ToJSON()
+	res, _ = client.Cmd("job", data)
+	assert.Equal(t, "err", res[0])
+	assert.Contains(t, res[1], "full")
+}
+
+// Sync ===============
+func Test_TerminalSync(t *testing.T) {
+	mapQueueOp := cmap.New()
+	mapOutRouter := cmap.New()
+	mapConfig := cmap.New()
+
+	mqOpPub := NewMsgQueueOp(make(chan *Msg, 1), 1)
+	mapConfig.Set(KeyBrokerName, "brokerName")
+	mapQueueOp.Set(KeyPubQueue, mqOpPub)
+
+	mc := mconn.NewConn()
+	tid := "#Ttest"
+
+	options := map[string]interface{}{
+		"name":               tid,
+		"conn":               mc.Server,
+		"mapQueueOp":         mapQueueOp,
+		"mapOutRouter":       mapOutRouter,
+		"mapConfig":          mapConfig,
+		"msInQueueOpTimeout": 1,
+	}
+
+	TerminalRun(options)
+
+	client := adapter.NewSSDBOper(mc.Client, 1)
+
+	confName := "myConf"
+	confData := "this is the conf data"
+	// 错误的参数个数
+	res, _ := client.Cmd("sync", confName)
+	assert.Equal(t, "err", res[0])
+	assert.Contains(t, res[1], "need args")
+
+	// 找不到配置
+	res, _ = client.Cmd("sync", confName, "")
+	assert.Equal(t, "newest", res[0])
+
+	// 版本不一致
+	mapConfig.Set(KeyVerConf, "v1")
+	mapConfig.Set(confName, confData)
+	res, _ = client.Cmd("sync", confName, "")
+	assert.Equal(t, "ok", res[0])
+	assert.Equal(t, "v1", res[1])
+	assert.Contains(t, res[2], confData)
+
+	// 版本一致
+	res, _ = client.Cmd("sync", confName, "v1")
+	assert.Equal(t, "newest", res[0])
+
+	// 不可序列化配置
+	mapConfig.Set(confName, mqOpPub)
+	res, _ = client.Cmd("sync", confName, "")
+	assert.Equal(t, "err", res[0])
+	assert.Contains(t, res[1], "encode")
 }
