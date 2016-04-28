@@ -19,3 +19,8 @@ func (lg *Able) Log(fields Fields) *logrus.Entry {
 	}
 	return logrus.WithFields(logrus.Fields(fields))
 }
+
+// LogDirect 直接返回日志实例
+func (lg *Able) LogDirect() *logrus.Entry {
+	return logrus.WithFields(logrus.Fields(lg.FixFields))
+}
