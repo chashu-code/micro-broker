@@ -19,7 +19,12 @@ type MsgQueue struct {
 
 // NewMsgQueue 构造一个 MsgQueue
 func NewMsgQueue(msTimeout int) *MsgQueue {
-	mq := make(MsgChan, MsgQueueSizeDefault)
+	return NewMsgQueueWithSize(msTimeout, MsgQueueSizeDefault)
+}
+
+// NewMsgQueueWithSize 构造一个 MsgQueue，可以指定缓冲大小
+func NewMsgQueueWithSize(msTimeout int, size int) *MsgQueue {
+	mq := make(MsgChan, size)
 	durationTimeout := time.Millisecond * time.Duration(msTimeout)
 
 	q := &MsgQueue{

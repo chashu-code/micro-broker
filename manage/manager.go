@@ -28,10 +28,12 @@ type IManager interface {
 	DestAddr(dest string) string
 	Verbose() bool
 	SetVerbose(bool)
+	IsShutdown() bool
 }
 
 // Manager 管理基本功能
 type Manager struct {
+	shutdown   bool
 	verbose    bool
 	name       string
 	mapCatalog map[uint8]cmap.ConcurrentMap
@@ -47,6 +49,11 @@ func (m *Manager) init(name string) {
 	m.mapCatalog = make(map[uint8]cmap.ConcurrentMap)
 	m.mapCatalog[IDMapConf] = cmap.New()
 	m.mapCatalog[IDMapQueue] = cmap.New()
+}
+
+// 是否已停止
+func (m *Manager) IsShutdown() bool {
+	return m.shutdown
 }
 
 func (m *Manager) Verbose() bool {

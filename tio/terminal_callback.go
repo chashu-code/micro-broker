@@ -117,14 +117,21 @@ func (c *TerminalCallback) processReqSend(t *Terminal, cmd string, p IPacket) {
 		return
 	}
 
-	queue := t.MsgQueue(msg.Service)
+	var queue *MsgQueue
+
+	if cmd == CmdJobSend {
+		queue = t.MsgQueue(KeyJobQueue)
+	} else {
+		queue = t.MsgQueue(msg.Service)
+		msg.Action = CmdReqRecv
+	}
+
 	if queue == nil {
 		p.Update("err", fmt.Sprintf("unfound service queue %q", msg.Service))
 		return
 	}
 
 	msg.updateFrom(t.Manager.Name(), t.Name, t.RIDNext())
-	msg.Action = CmdReqRecv
 
 	if !queue.Push(msg, false) {
 		p.Update("err", fmt.Sprintf("push service queue %q timeout", msg.Service))

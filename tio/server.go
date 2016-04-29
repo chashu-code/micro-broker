@@ -65,12 +65,18 @@ const (
 
 	// AddrListenDefault 默认监听地址
 	AddrListenDefault = "127.0.0.1:6636"
+	// AddrJobServerDefault 默认Beanstalk监听地址
+	AddrJobServerDefault = "127.0.0.1:11300"
+
 	// MsgQueueSizeDefault 消息队列最大缓冲
 	MsgQueueSizeDefault = 10
 	// MsgQueueOpTimeoutDefault 消息队列操作超时毫秒
 	MsgQueueOpTimeoutDefault = 100
 	// NetTimeoutDefault 网络操作超时毫秒
 	NetTimeoutDefault = 1000
+
+	// JobPutWorker size
+	JobPutWorkerSizeDefault = 3
 )
 
 // Server 服务基本实现

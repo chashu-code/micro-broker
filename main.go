@@ -19,9 +19,19 @@ func main() {
 
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
-	broker := manage.NewBroker("dev")
-	broker.SetVerbose(*verbose)
+	// manager
+	m := manage.NewBroker("dev")
+	m.SetVerbose(*verbose)
+	m.MapSet(manage.IDMapQueue, tio.KeyJobQueue,
+		tio.NewMsgQueueWithSize(tio.MsgQueueOpTimeoutDefault, tio.JobPutWorkerSizeDefault))
 
+	// job worker
+	for i := 0; i < tio.JobPutWorkerSizeDefault; i++ {
+		w := tio.NewJobPutWorker(m)
+		go w.Run()
+	}
+
+	// server
 	server := new(tio.TCPServer)
-	server.Listen(broker, ":6636")
+	server.Listen(m, ":6636")
 }
