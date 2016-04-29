@@ -65,10 +65,8 @@ const (
 
 	// AddrListenDefault 默认监听地址
 	AddrListenDefault = "127.0.0.1:6636"
-	// SpriteLBSizeDefault 精灵负载最大数量
-	SpriteLBSizeDefault = 2
 	// MsgQueueSizeDefault 消息队列最大缓冲
-	MsgQueueSizeDefault = 30
+	MsgQueueSizeDefault = 10
 	// MsgQueueOpTimeoutDefault 消息队列操作超时毫秒
 	MsgQueueOpTimeoutDefault = 100
 	// NetTimeoutDefault 网络操作超时毫秒

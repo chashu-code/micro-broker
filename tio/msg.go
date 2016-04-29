@@ -25,6 +25,8 @@ const (
 	// CmdResRecv 应答接收指令
 	CmdResRecv = "res_recv"
 
+	// CmdPull 拉取指令
+	CmdPull = "pull"
 	// CmdSub 订阅指令
 	CmdSub = "sub"
 	// CmdReg 注册指令

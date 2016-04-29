@@ -41,8 +41,8 @@ func (c *TerminalCallback) OnData(t *Terminal, packet IPacket) bool {
 	switch cmd {
 	case CmdReg: // 注册监听
 		c.processReg(t, p)
-	case CmdSub: // 监听服务
-		c.processSub(t, p)
+	case CmdPull: // 拉取指令
+		c.processPull(t, p)
 	case CmdJobSend, CmdReqSend:
 		c.processReqSend(t, cmd, p)
 	case CmdResSend: // 发送应答
@@ -53,7 +53,7 @@ func (c *TerminalCallback) OnData(t *Terminal, packet IPacket) bool {
 		p.Update("err", fmt.Sprintf("wrong cmd %s %v", cmd, args))
 	}
 
-	if t.Manager.Verbose() {
+	if t.Manager.Verbose() && cmd != "pull" {
 		c.Log(log.Fields{
 			"tid":      t.Name,
 			"recvCmd":  cmd,
@@ -219,10 +219,10 @@ func (c *TerminalCallback) processReg(t *Terminal, p IPacket) {
 	p.Update("ok", subToken)
 }
 
-func (c *TerminalCallback) processSub(t *Terminal, p IPacket) {
+func (c *TerminalCallback) processPull(t *Terminal, p IPacket) {
 	args := p.StrArgs()
 	if len(args) < 1 {
-		p.Update("err", "cmd sub need args: sub_token")
+		p.Update("err", "cmd pull need args: sub_token")
 		return
 	}
 
