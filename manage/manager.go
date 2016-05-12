@@ -1,11 +1,46 @@
 package manage
 
 import (
+	"sort"
+	"strings"
+
 	"github.com/Sirupsen/logrus"
 	cmap "github.com/streamrail/concurrent-map"
 )
 
 const (
+	// KeyBrokerName  配置中，当前borker name
+	KeyBrokerName = "#NAME"
+	// KeyBrokersOnline 配置中，在线brokers
+	KeyBrokersOnline = "#ON-BRKS"
+
+	// KeyGateWaysOnline 配置中，在线的gateway
+	KeyGateWaysOnline = "#ON-GWS"
+
+	// KeyJobQueue 任务队列名
+	KeyJobQueue = "#QUEUE-JOB"
+
+	// KeyBrokerQueue 代理消息队列名
+	KeyBrokerQueue = "#QUEUE-BRK"
+
+	// KeyPubQueue 推送消息队列名
+	KeyPubQueue = "#QUEUE-PUB"
+
+	// KeyVerConf 配置版本名
+	KeyVerConf = "#VER-CONF"
+
+	// KeyVerGateWaysOnline 在线gateway版本
+	KeyVerGateWaysOnline = "#VER-ON-GWS"
+
+	// KeyVerBrokersOnline 在线broker版本
+	KeyVerBrokersOnline = "#VER-ON-BRKS"
+
+	// KeyVerServiceRoute 服务路由版本
+	KeyVerServiceRoute = "#VER-SROUTE"
+
+	// KeyServiceRoute 服务路由
+	KeyServiceRoute = "#SROUTE"
+
 	// AddrLocal 本地地址
 	AddrLocal = "local"
 )
@@ -109,4 +144,48 @@ func (m *Manager) RouteNextDest(service string) string {
 // DestAddr 返回目标访问地址
 func (m *Manager) DestAddr(dest string) string {
 	return AddrLocal
+}
+
+func (m *Manager) updateWithSyncInfo(info map[string]interface{}) {
+	var ok bool
+	var vStr string
+	// var vMap map[string]interface{}
+	// var routeMap map[string]interface{}
+
+	for k, v := range info {
+		switch k {
+		case KeyBrokersOnline, KeyGateWaysOnline:
+			if vStr, ok = v.(string); ok {
+				m.MapSet(IDMapConf, k, PickBrokersFromStr(vStr))
+			}
+		case KeyServiceRoute:
+			// if vMap, ok = v.(map[string]interface{}); ok {
+			// 	for service, rv := range vMap {
+			// 		if routeMap, ok = rv.(map[string]interface{}); !ok {
+			// 			continue
+			// 		}
+			// 		if router, err := PickRouterFromMap(routeMap); err != nil {
+			// 			m.Log(log.Fields{
+			// 				"service": service,
+			// 				"error":   err,
+			// 			}).Error("PickRouterFromMap fail")
+			// 		} else {
+			// 			m.MapSet(IDMapQueue, service, router)
+			// 		}
+			// 	}
+			// }
+		default:
+			m.MapSet(IDMapConf, k, v)
+		}
+	}
+}
+
+// PickBrokersFromStr 分割字符串，提取并返回排序后的borkers列表
+func PickBrokersFromStr(str string) []string {
+	if len(str) == 0 {
+		return []string{}
+	}
+	bs := strings.Split(str, ",")
+	sort.Strings(bs)
+	return bs
 }

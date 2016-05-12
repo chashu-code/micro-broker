@@ -89,7 +89,7 @@ func NewMultiMsgQueuePoper(mapQueue cmap.ConcurrentMap, keys []string) *MultiMsg
 	size := len(keys)
 
 	poper.posTimer = size
-	poper.timeoutPop = time.Duration(MsgQueueOpTimeoutDefault) * time.Millisecond
+	poper.timeoutPop = time.Duration(MsgQueuePopTimeoutDefault) * time.Millisecond
 	poper.selCase = make([]reflect.SelectCase, size+1)
 
 	var op *MsgQueue

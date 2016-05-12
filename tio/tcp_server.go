@@ -16,13 +16,9 @@ type TCPServer struct {
 // Listen 开始监听
 func (s *TCPServer) Listen(manager manage.IManager, addr string) {
 	var listener *net.TCPListener
-
-	protocol := &SSDBProtocol{
-		timeoutDeadLine: time.Second,
-	}
 	callback := &TerminalCallback{}
 
-	s.Server.Start(addr, protocol, callback)
+	s.Server.Start(addr, nil, callback)
 
 	defer func() {
 		s.Log(log.Fields{

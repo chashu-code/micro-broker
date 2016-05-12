@@ -24,7 +24,7 @@ func NewJobPutWorker(manager manage.IManager) *JobPutWorker {
 		manager: manager,
 	}
 
-	v, ok := manager.MapGet(manage.IDMapQueue, KeyJobQueue)
+	v, ok := manager.MapGet(manage.IDMapQueue, manage.KeyJobQueue)
 	if !ok {
 		panic(errors.New("JobPutWorker need job queue"))
 	}

@@ -39,7 +39,7 @@ func TerminalRun(name string, manager manage.IManager, server IServer, conn net.
 		Server:  server,
 		Manager: manager,
 		conn:    conn,
-		protocol: &SSDBProtocol{
+		protocol: &MPProtocol{
 			timeoutDeadLine: time.Second,
 		},
 	}
@@ -58,6 +58,11 @@ func (t *Terminal) RID() string {
 func (t *Terminal) RIDNext() string {
 	t.rid++
 	return t.RID()
+}
+
+// Protocol 返回协议
+func (t *Terminal) Protocol() IProtocol {
+	return t.protocol
 }
 
 // MsgQueue 获取指定name的消息队列，找不到返回nil
