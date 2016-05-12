@@ -6,12 +6,14 @@ import "net"
 type IPacket interface {
 	Bytes() []byte
 	ToMsg() *Msg
-	CMD() string
-	StrArgs() []string
-	Update(...interface{})
+	Cmds() []string
+	Data() []byte
+	UpdateCmds(...string)
+	UpdateData([]byte)
 }
 
 // IProtocol 协议接口
 type IProtocol interface {
 	ReadPacket(conn net.Conn) (IPacket, error)
+	Marshal(interface{}) ([]byte, error)
 }

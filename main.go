@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"os"
 	"runtime"
 
 	"github.com/chashu-code/micro-broker/manage"
@@ -13,15 +14,37 @@ var brokerName = flag.String("n", "", "指定 Broker 名称（ 默认采用 os.H
 var pathConf = flag.String("c", "", "JSON 配置文件路径（ 通常仅用于开发环境 ）")
 var isMonitor = flag.Bool("monitor", false, "若指定，则以 Monitor 的方式运行")
 var verbose = flag.Bool("verbose", false, "若指定，则以 Monitor 的方式运行")
+var nojob = flag.Bool("nojob", false, "若指定，则不对job进行处理")
 
 func main() {
 	flag.Parse()
 
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
-	broker := manage.NewBroker("dev")
-	broker.SetVerbose(*verbose)
+	name := *brokerName
+	var err error
+	if name == "" {
+		name, err = os.Hostname()
+		if err != nil {
+			panic(err)
+		}
+	}
 
+	// manager
+	m := manage.NewBroker(name, *pathConf)
+	m.SetVerbose(*verbose)
+	m.MapSet(manage.IDMapQueue, manage.KeyJobQueue,
+		tio.NewMsgQueueWithSize(tio.MsgQueueOpTimeoutDefault, tio.JobPutWorkerSizeDefault))
+
+	// job worker
+	if !*nojob {
+		for i := 0; i < tio.JobPutWorkerSizeDefault; i++ {
+			w := tio.NewJobPutWorker(m)
+			go w.Run()
+		}
+	}
+
+	// server
 	server := new(tio.TCPServer)
-	server.Listen(broker, ":6636")
+	server.Listen(m, ":6636")
 }

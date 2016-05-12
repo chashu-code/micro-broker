@@ -25,6 +25,8 @@ const (
 	// CmdResRecv 应答接收指令
 	CmdResRecv = "res_recv"
 
+	// CmdPull 拉取指令
+	CmdPull = "pull"
 	// CmdSub 订阅指令
 	CmdSub = "sub"
 	// CmdReg 注册指令
@@ -39,7 +41,7 @@ type Msg struct {
 	From    string
 	Service string
 	Nav     string
-	Data    string
+	Data    []byte
 	Code    string
 }
 
@@ -66,14 +68,18 @@ func (msg *Msg) updateFrom(bid, tid, rid string) {
 func (msg *Msg) UpdatePacket(p IPacket) {
 	switch msg.Action {
 	case CmdReqSend, CmdJobSend:
-		p.Update(msg.Action, msg.Service, msg.Nav, msg.Data)
+		p.UpdateCmds(msg.Action, msg.Service, msg.Nav)
+		p.UpdateData(msg.Data)
 	case CmdReqRemote, CmdReqRecv, CmdJobRemote:
-		p.Update(msg.Action, msg.Service, msg.Nav, msg.Data, msg.From)
+		p.UpdateCmds(msg.Action, msg.Service, msg.Nav, msg.From)
+		p.UpdateData(msg.Data)
 	case CmdResSend, CmdResRemote:
-		p.Update(msg.Action, msg.Code, msg.Data, msg.From)
+		p.UpdateCmds(msg.Action, msg.Code, msg.From)
+		p.UpdateData(msg.Data)
 	case CmdResRecv:
-		p.Update(msg.Action, msg.Code, msg.Data)
+		p.UpdateCmds(msg.Action, msg.Code)
+		p.UpdateData(msg.Data)
 	default:
-		p.Update("err", fmt.Sprintf("wrong msg(%s) update packet", msg.Action))
+		p.UpdateCmds("err", fmt.Sprintf("wrong msg(%s) update packet", msg.Action))
 	}
 }

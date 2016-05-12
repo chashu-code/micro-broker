@@ -31,48 +31,22 @@ type IServer interface {
 }
 
 const (
-	// KeyBrokerName  配置中，当前borker name
-	KeyBrokerName = "#NAME"
-	// KeyBrokersOnline 配置中，在线brokers
-	KeyBrokersOnline = "#ON-BRKS"
-
-	// KeyGateWaysOnline 配置中，在线的gateway
-	KeyGateWaysOnline = "#ON-GWS"
-
-	// KeyJobQueue 任务队列名
-	KeyJobQueue = "#QUEUE-JOB"
-
-	// KeyBrokerQueue 代理消息队列名
-	KeyBrokerQueue = "#QUEUE-BRK"
-
-	// KeyPubQueue 推送消息队列名
-	KeyPubQueue = "#QUEUE-PUB"
-
-	// KeyVerConf 配置版本名
-	KeyVerConf = "#VER-CONF"
-
-	// KeyVerGateWaysOnline 在线gateway版本
-	KeyVerGateWaysOnline = "#VER-ON-GWS"
-
-	// KeyVerBrokersOnline 在线broker版本
-	KeyVerBrokersOnline = "#VER-ON-BRKS"
-
-	// KeyVerServiceRoute 服务路由版本
-	KeyVerServiceRoute = "#VER-SROUTE"
-
-	// KeyServiceRoute 服务路由
-	KeyServiceRoute = "#SROUTE"
-
 	// AddrListenDefault 默认监听地址
 	AddrListenDefault = "127.0.0.1:6636"
-	// SpriteLBSizeDefault 精灵负载最大数量
-	SpriteLBSizeDefault = 2
+	// AddrJobServerDefault 默认Beanstalk监听地址
+	AddrJobServerDefault = "127.0.0.1:11300"
+
 	// MsgQueueSizeDefault 消息队列最大缓冲
-	MsgQueueSizeDefault = 30
+	MsgQueueSizeDefault = 10
 	// MsgQueueOpTimeoutDefault 消息队列操作超时毫秒
 	MsgQueueOpTimeoutDefault = 100
+	// MsgQueuePopTimeoutDefault 消息队列操作超时毫秒
+	MsgQueuePopTimeoutDefault = 500
 	// NetTimeoutDefault 网络操作超时毫秒
 	NetTimeoutDefault = 1000
+
+	// JobPutWorkerSizeDefault size
+	JobPutWorkerSizeDefault = 3
 )
 
 // Server 服务基本实现
