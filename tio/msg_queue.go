@@ -83,6 +83,7 @@ type MultiMsgQueuePoper struct {
 var mutexQueueBuild sync.Mutex
 
 // NewMultiMsgQueuePoper 构造多队列读取者
+// 每个 goroutine 各自持有自己的 MultiMsgQueuePoper，不能共享该实例
 func NewMultiMsgQueuePoper(mapQueue cmap.ConcurrentMap, keys []string) *MultiMsgQueuePoper {
 	poper := &MultiMsgQueuePoper{}
 
@@ -117,6 +118,17 @@ func NewMultiMsgQueuePoper(mapQueue cmap.ConcurrentMap, keys []string) *MultiMsg
 
 	poper.selCase[poper.posTimer].Dir = reflect.SelectRecv
 	return poper
+}
+
+// Clone 克隆一个新的 MultiMsgQueuePoper
+func (p *MultiMsgQueuePoper) Clone() *MultiMsgQueuePoper {
+	poperNew := &MultiMsgQueuePoper{}
+	count := p.posTimer + 1
+	poperNew.posTimer = p.posTimer
+	poperNew.timeoutPop = p.timeoutPop
+	poperNew.selCase = make([]reflect.SelectCase, count)
+	copy(poperNew.selCase, p.selCase)
+	return poperNew
 }
 
 // Pop 弹出有效获取的消息，若超时或失败，则返回 nil, false

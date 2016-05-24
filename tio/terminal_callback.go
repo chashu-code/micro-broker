@@ -37,6 +37,15 @@ func (c *TerminalCallback) OnData(t *Terminal, packet IPacket) bool {
 	cmds := p.Cmds()
 	cmd := cmds[0]
 
+	isVerbose := t.Manager.Verbose()
+
+	if isVerbose {
+		c.Log(log.Fields{
+			"tid":  t.Name,
+			"cmds": cmds,
+		}).Debug("Terminal recv")
+	}
+
 	switch cmd {
 	case CmdReg: // 注册监听
 		c.processReg(t, p)
@@ -59,12 +68,11 @@ func (c *TerminalCallback) OnData(t *Terminal, packet IPacket) bool {
 		p.UpdateData(nil)
 	}
 
-	if t.Manager.Verbose() && (cmd != "pull" || cmdsRes[0] != "empty") {
+	if isVerbose {
 		c.Log(log.Fields{
-			"tid":      t.Name,
-			"recvCmds": cmds,
-			"sendCmds": cmdsRes,
-		}).Debug("Terminal data")
+			"tid":  t.Name,
+			"cmds": cmds,
+		}).Debug("Terminal send")
 	}
 
 	if err := t.SendPacket(p); err != nil {
@@ -87,11 +95,17 @@ func (c *TerminalCallback) OnClose(t *Terminal) {
 
 // OnError 终端发生错误时回调处理
 func (c TerminalCallback) OnError(t *Terminal, err interface{}) {
-	c.Log(log.Fields{
+	fields := log.Fields{
 		"tid":   t.Name,
 		"error": err,
-		"stack": (string)(debug.Stack()),
-	}).Error("Terminal error")
+		// "times": t.Times(),
+	}
+
+	if t.Manager.Verbose() {
+		fields["stack"] = (string)(debug.Stack())
+	}
+
+	c.Log(fields).Error("Terminal error")
 }
 
 func (c *TerminalCallback) processReqSend(t *Terminal, cmd string, p IPacket) {
@@ -196,23 +210,25 @@ func (c *TerminalCallback) processReg(t *Terminal, p IPacket) {
 		return
 	}
 
+	var poper *MultiMsgQueuePoper
+
 	subToken := fmt.Sprintf("%x", md5.Sum([]byte(args[1])))
 	if v, ok := t.Manager.MapGet(manage.IDMapConf, subToken); ok {
-		if _, ok = v.(*MultiMsgQueuePoper); ok {
-			p.UpdateCmds("ok", subToken)
-			return
+		poper, _ = v.(*MultiMsgQueuePoper)
+	}
+
+	if poper == nil {
+		mapQueue := t.Manager.Map(manage.IDMapQueue)
+		if mapQueue == nil {
+			panic(errors.New("unfound mapQueue with server"))
 		}
+		services := strings.Split(args[1], ",")
+		poper = NewMultiMsgQueuePoper(mapQueue, services)
+
+		t.Manager.MapSet(manage.IDMapConf, subToken, poper)
 	}
 
-	mapQueue := t.Manager.Map(manage.IDMapQueue)
-	if mapQueue == nil {
-		panic(errors.New("unfound mapQueue with server"))
-	}
-
-	services := strings.Split(args[1], ",")
-	poper := NewMultiMsgQueuePoper(mapQueue, services)
-
-	t.Manager.MapSet(manage.IDMapConf, subToken, poper)
+	t.SubMsgPoper = poper.Clone() // 绑定一份注册实例拷贝
 
 	p.UpdateCmds("ok", subToken)
 }
@@ -225,28 +241,29 @@ func (c *TerminalCallback) processPull(t *Terminal, p IPacket) {
 	}
 
 	subToken := args[1]
+	poper := t.SubMsgPoper
 
-	var poper *MultiMsgQueuePoper
-
-	if v, ok := t.Manager.MapGet(manage.IDMapConf, subToken); ok {
-		poper, _ = v.(*MultiMsgQueuePoper)
+	if poper == nil { // 尝试获取注册实例
+		if v, ok := t.Manager.MapGet(manage.IDMapConf, subToken); ok {
+			poper, _ = v.(*MultiMsgQueuePoper)
+		}
 	}
 
-	if poper == nil {
+	if poper == nil { // 尝试获取注册实例失败
 		p.UpdateCmds("err", "unregistered sub_token")
 		return
 	}
 
-	msg, ok := poper.Pop()
+	if t.SubMsgPoper == nil { // 未绑定，则获取一份注册实例的拷贝
+		t.SubMsgPoper = poper.Clone()
+	}
+
+	msg, ok := t.SubMsgPoper.Pop()
+
 	if !ok {
 		p.UpdateCmds("empty")
 		return
 	}
-
-	// c.Log(log.Fields{
-	// 	"tid": t.Name,
-	// 	"msg": msg,
-	// }).Warn("Terminal pull a msg")
 
 	msg.UpdatePacket(p)
 }

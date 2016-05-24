@@ -20,13 +20,14 @@ var (
 
 // Terminal 终端
 type Terminal struct {
-	Name      string
-	Server    IServer
-	conn      net.Conn
-	onceClose sync.Once
-	flagClose int32
-	protocol  IProtocol
-	Manager   manage.IManager
+	Name        string
+	Server      IServer
+	conn        net.Conn
+	onceClose   sync.Once
+	flagClose   int32
+	protocol    IProtocol
+	Manager     manage.IManager
+	SubMsgPoper *MultiMsgQueuePoper
 
 	rid      uint
 	ResQueue *MsgQueue
@@ -111,6 +112,7 @@ func (t *Terminal) run() {
 }
 
 func (t *Terminal) doRecv() (IPacket, error) {
+	// t.readAt = time.Now()
 	return t.protocol.ReadPacket(t.conn)
 }
 
