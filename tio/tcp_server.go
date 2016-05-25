@@ -54,6 +54,10 @@ func (s *TCPServer) Listen(manager manage.IManager, addr string) {
 			}
 		}
 
+		// if err = conn.SetNoDelay(true); err != nil {
+		// 	panic(err)
+		// }
+
 		s.TerminalStart()
 		go func() {
 			defer s.TerminalClose()
