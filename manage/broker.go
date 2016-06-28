@@ -14,7 +14,7 @@ type Broker struct {
 // NewBroker 构造一个新的代理Broker
 func NewBroker(name string, pathConfig string) *Broker {
 	b := new(Broker)
-	b.init(name)
+	b.Init(name)
 	b.updateWithConfFile(pathConfig)
 	return b
 }

@@ -11,6 +11,13 @@
     }
   },
 
+  "#CRONTAB": {
+    "op-inventory-clean": {
+      "interval": 1,
+      "body": ""
+    }
+  },  
+
   "coupons": {
     "prefix": "我是前缀"
   }

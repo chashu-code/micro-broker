@@ -8,24 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// 性能压测
-func Benchmark_MsgQueue(b *testing.B) {
-
-	count := b.N
-	q := NewMsgQueue(1)
-
-	go func() {
-		for i := 0; i < count; i++ {
-			q.Push(&Msg{}, true)
-		}
-	}()
-
-	for i := 0; i < count; i++ {
-		q.Pop(true)
-	}
-}
-
-// 顺序写入读取
 func Test_MsgQueueFIFO(t *testing.T) {
 	count := 3
 	q := NewMsgQueue(1)
@@ -44,10 +26,11 @@ func Test_MsgQueueFIFO(t *testing.T) {
 	}
 }
 
-// Test_MultiMsgQueuePoper test
-func Test_MultiMsgQueuePoper(t *testing.T) {
+func Test_MultiMsgQueuePoper_Pop(t *testing.T) {
+	keys := []string{"two", "one"}
+
 	mapOp := cmap.New()
-	p := NewMultiMsgQueuePoper(mapOp, []string{"one", "two"})
+	p := NewMultiMsgQueuePoper(mapOp, keys, 10, 1)
 
 	v, _ := mapOp.Get("one")
 	one := v.(*MsgQueue)
@@ -63,16 +46,38 @@ func Test_MultiMsgQueuePoper(t *testing.T) {
 	two.C <- &Msg{Action: "two"}
 	one.C <- &Msg{Action: "one"}
 
-	keysMay := []string{"two", "one"}
+	msg, ok = p.Pop()
+	assert.True(t, ok)
+	assert.Contains(t, keys, msg.Action)
 
 	msg, ok = p.Pop()
 	assert.True(t, ok)
-	assert.Contains(t, keysMay, msg.Action)
-
-	msg, ok = p.Pop()
-	assert.True(t, ok)
-	assert.Contains(t, keysMay, msg.Action)
+	assert.Contains(t, keys, msg.Action)
 
 	_, ok = p.Pop()
 	assert.False(t, ok)
+}
+
+func Test_MultiMsgQueuePoper_Clone(t *testing.T) {
+	keys := []string{"two", "one"}
+	mapOp := cmap.New()
+	p := NewMultiMsgQueuePoper(mapOp, keys, 10, 1)
+
+	v, _ := mapOp.Get("one")
+	one := v.(*MsgQueue)
+
+	v, _ = mapOp.Get("two")
+	two := v.(*MsgQueue)
+
+	pc := p.Clone()
+
+	two.C <- &Msg{Action: "two"}
+	one.C <- &Msg{Action: "one"}
+
+	_, ok := pc.Pop()
+	assert.True(t, ok)
+
+	_, ok = pc.Pop()
+	assert.True(t, ok)
+
 }

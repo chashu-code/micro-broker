@@ -45,8 +45,20 @@ type Msg struct {
 	Code    string
 }
 
-// BTR_IDS 返回 bid,tid,rid
-func (msg *Msg) btrIDS() (bid, tid, rid string) {
+// Clone 克隆一个新的msg
+func (msg *Msg) Clone() *Msg {
+	return &Msg{
+		Action:  msg.Action,
+		From:    msg.From,
+		Service: msg.Service,
+		Nav:     msg.Nav,
+		Data:    msg.Data,
+		Code:    msg.Code,
+	}
+}
+
+// BTRids 返回 bid,tid,rid
+func (msg *Msg) BTRids() (bid, tid, rid string) {
 	ids := strings.Split(msg.From, "@")
 	switch len(ids) {
 	case 3:
@@ -60,7 +72,8 @@ func (msg *Msg) btrIDS() (bid, tid, rid string) {
 	return
 }
 
-func (msg *Msg) updateFrom(bid, tid, rid string) {
+// UpdateFrom 依据传入的 bid tid rid 更新 From
+func (msg *Msg) UpdateFrom(bid, tid, rid string) {
 	msg.From = strings.Join([]string{bid, tid, rid}, "@")
 }
 

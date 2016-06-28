@@ -3,6 +3,7 @@ package manage
 import (
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/Sirupsen/logrus"
 	cmap "github.com/streamrail/concurrent-map"
@@ -54,6 +55,7 @@ const (
 
 // IManager 管理接口
 type IManager interface {
+	Init(string)
 	Name() string
 	MapGet(id uint8, key string) (interface{}, bool)
 	MapSet(id uint8, key string, value interface{}) bool
@@ -64,14 +66,42 @@ type IManager interface {
 	Verbose() bool
 	SetVerbose(bool)
 	IsShutdown() bool
+	Shutdown()
+	WaitAdd()
+	WaitDone()
 }
 
 // Manager 管理基本功能
 type Manager struct {
-	shutdown   bool
-	verbose    bool
-	name       string
-	mapCatalog map[uint8]cmap.ConcurrentMap
+	verbose       bool
+	name          string
+	mapCatalog    map[uint8]cmap.ConcurrentMap
+	chanStop      chan struct{}
+	waitGroupStop *sync.WaitGroup
+}
+
+func (m *Manager) WaitAdd() {
+	m.waitGroupStop.Add(1)
+}
+
+func (m *Manager) WaitDone() {
+	m.waitGroupStop.Done()
+}
+
+// IsShutdown 是否已关闭
+func (m *Manager) IsShutdown() bool {
+	select {
+	case <-m.chanStop:
+		return true
+	default:
+		return false
+	}
+}
+
+// Shutdown 停止
+func (m *Manager) Shutdown() {
+	close(m.chanStop)
+	m.waitGroupStop.Wait()
 }
 
 // Name 名称
@@ -79,16 +109,13 @@ func (m *Manager) Name() string {
 	return m.name
 }
 
-func (m *Manager) init(name string) {
+func (m *Manager) Init(name string) {
 	m.name = name
 	m.mapCatalog = make(map[uint8]cmap.ConcurrentMap)
 	m.mapCatalog[IDMapConf] = cmap.New()
 	m.mapCatalog[IDMapQueue] = cmap.New()
-}
-
-// 是否已停止
-func (m *Manager) IsShutdown() bool {
-	return m.shutdown
+	m.chanStop = make(chan struct{}, 0)
+	m.waitGroupStop = &sync.WaitGroup{}
 }
 
 func (m *Manager) Verbose() bool {

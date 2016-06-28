@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"time"
 
 	"github.com/ugorji/go/codec"
 )
@@ -121,7 +120,7 @@ func (p *MPPacket) Bytes() []byte {
 
 // MPProtocol MP协议
 type MPProtocol struct {
-	timeoutDeadLine time.Duration
+	// timeoutDeadLine time.Duration
 }
 
 // ReadPacket 从conn中读取并分析提取出 Packet
@@ -143,13 +142,11 @@ func (p *MPProtocol) ReadPacket(conn net.Conn) (IPacket, error) {
 	cmdBytes := make([]byte, sizeCmd)
 	dataBytes := make([]byte, sizeData)
 
-	// fmt.Printf("read cmdBytes: %v \n", sizeCmd)
 	if _, err := io.ReadFull(conn, cmdBytes); err != nil {
 		return nil, fmt.Errorf("packet read cmds fail: %v", err)
 	}
 
 	if sizeData > 0 {
-		// fmt.Printf("read dataBytes: %v \n", sizeData)
 		if _, err := io.ReadFull(conn, dataBytes); err != nil {
 			return nil, fmt.Errorf("packet read data fail: %v", err)
 		}

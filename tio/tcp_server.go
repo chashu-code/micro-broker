@@ -14,11 +14,10 @@ type TCPServer struct {
 }
 
 // Listen 开始监听
-func (s *TCPServer) Listen(manager manage.IManager, addr string) {
+func (s *TCPServer) Listen(manager manage.IManager, config *Config) {
 	var listener *net.TCPListener
-	callback := &TerminalCallback{}
 
-	s.Server.Start(addr, nil, callback)
+	s.Server.Start(manager, config)
 
 	defer func() {
 		s.Log(log.Fields{
@@ -28,20 +27,22 @@ func (s *TCPServer) Listen(manager manage.IManager, addr string) {
 		if listener != nil {
 			listener.Close()
 		}
-
-		s.Server.Shutdown()
+		s.Server.Stop()
 	}()
 
-	tcpAddr, err := net.ResolveTCPAddr("tcp4", addr)
+	tcpAddr, err := net.ResolveTCPAddr("tcp4", s.config.AddrListen)
 	checkError(err)
 	listener, err = net.ListenTCP("tcp", tcpAddr)
 	checkError(err)
 
 	s.LogDirect().Info("TCPServer start")
 
-	timeoutAccept := time.Second
+	timeoutAccept := time.Duration(s.config.NetTimeout) * time.Millisecond
 
-	for !s.IsShutdown() {
+	s.config.Protocol = &MPProtocol{}
+	s.config.ConnCallback = &TerminalCallback{}
+
+	for !s.manager.IsShutdown() {
 
 		listener.SetDeadline(time.Now().Add(timeoutAccept))
 
@@ -61,12 +62,7 @@ func (s *TCPServer) Listen(manager manage.IManager, addr string) {
 		s.TerminalStart()
 		go func() {
 			defer s.TerminalClose()
-			TerminalRun(s.TIDNext(), manager, s, conn)
+			TerminalRun(s.TIDNext(), manager, s.config, conn)
 		}()
 	}
-}
-
-// Shutdown 关闭
-func (s *TCPServer) Shutdown() {
-	s.Server.ShutdownWait()
 }
