@@ -21,33 +21,35 @@ var (
 // Terminal 终端
 type Terminal struct {
 	Name        string
-	Server      IServer
-	conn        net.Conn
-	onceClose   sync.Once
-	flagClose   int32
-	protocol    IProtocol
 	Manager     manage.IManager
 	SubMsgPoper *MultiMsgQueuePoper
+	ResQueue    *MsgQueue
 
-	rid      uint
-	ResQueue *MsgQueue
+	Conf      *Config
+	conn      net.Conn
+	onceClose sync.Once
+	flagClose int32
+
+	rid uint
 }
 
 // TerminalRun 构造并执行Terminal
-func TerminalRun(name string, manager manage.IManager, server IServer, conn net.Conn) {
+func TerminalRun(name string, manager manage.IManager, config *Config, conn net.Conn) {
+	t := TerminalBuild(name, manager, config)
+	t.conn = conn
+	t.run()
+}
+
+func TerminalBuild(name string, manager manage.IManager, config *Config) *Terminal {
 	t := &Terminal{
 		Name:    name,
-		Server:  server,
 		Manager: manager,
-		conn:    conn,
-		protocol: &MPProtocol{
-			timeoutDeadLine: time.Second,
-		},
+		Conf:    config,
 	}
 
-	t.ResQueue = NewMsgQueue(NetTimeoutDefault)
+	t.ResQueue = NewMsgQueue(t.Conf.NetTimeout)
 	t.Manager.MapSet(manage.IDMapQueue, t.Name, t.ResQueue)
-	t.run()
+	return t
 }
 
 // RID 返回当前 rid 的字符串
@@ -63,7 +65,7 @@ func (t *Terminal) RIDNext() string {
 
 // Protocol 返回协议
 func (t *Terminal) Protocol() IProtocol {
-	return t.protocol
+	return t.Conf.Protocol
 }
 
 // MsgQueue 获取指定name的消息队列，找不到返回nil
@@ -89,15 +91,19 @@ func (t *Terminal) DelMsgQueue(name string) {
 func (t *Terminal) run() {
 	defer func() {
 		if err := recover(); err != nil {
-			t.Server.ConnCallback().OnError(t, err)
+			t.Conf.ConnCallback.OnError(t, err)
 		}
 		t.close()
 	}()
 
-	t.Server.ConnCallback().OnConnect(t)
+	t.Conf.ConnCallback.OnConnect(t)
 
-	for !(t.Server.IsShutdown() || t.isClosed()) {
-		// TODO 后期需要push时，再异步化
+	durDeadline := time.Duration(t.Conf.TerminalTimeout) * time.Millisecond
+
+	for !(t.Manager.IsShutdown() || t.isClosed()) {
+		if err := t.conn.SetDeadline(time.Now().Add(durDeadline)); err != nil {
+			panic(err)
+		}
 		packet, err := t.doRecv()
 		if err != nil {
 			if !isTimeout(err) {
@@ -113,11 +119,11 @@ func (t *Terminal) run() {
 
 func (t *Terminal) doRecv() (IPacket, error) {
 	// t.readAt = time.Now()
-	return t.protocol.ReadPacket(t.conn)
+	return t.Conf.Protocol.ReadPacket(t.conn)
 }
 
 func (t *Terminal) doPacket(packet IPacket) bool {
-	return t.Server.ConnCallback().OnData(t, packet)
+	return t.Conf.ConnCallback.OnData(t, packet)
 }
 
 // SendPacket 发送数据包
@@ -139,6 +145,6 @@ func (t *Terminal) close() {
 		t.DelMsgQueue(t.Name)
 		atomic.StoreInt32(&t.flagClose, 1)
 		t.conn.Close()
-		t.Server.ConnCallback().OnClose(t)
+		t.Conf.ConnCallback.OnClose(t)
 	})
 }

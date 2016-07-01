@@ -71,7 +71,7 @@ func (c *TerminalCallback) OnData(t *Terminal, packet IPacket) bool {
 	if isVerbose {
 		c.Log(log.Fields{
 			"tid":  t.Name,
-			"cmds": cmds,
+			"cmds": cmdsRes,
 		}).Debug("Terminal send")
 	}
 
@@ -98,7 +98,6 @@ func (c TerminalCallback) OnError(t *Terminal, err interface{}) {
 	fields := log.Fields{
 		"tid":   t.Name,
 		"error": err,
-		// "times": t.Times(),
 	}
 
 	if t.Manager.Verbose() {
@@ -142,7 +141,7 @@ func (c *TerminalCallback) processReqSend(t *Terminal, cmd string, p IPacket) {
 		return
 	}
 
-	msg.updateFrom(t.Manager.Name(), t.Name, t.RIDNext())
+	msg.UpdateFrom(t.Manager.Name(), t.Name, t.RIDNext())
 
 	if !queue.Push(msg, false) {
 		p.UpdateCmds("err", fmt.Sprintf("push service queue %q timeout", msg.Service))
@@ -158,7 +157,7 @@ func (c *TerminalCallback) processReqSend(t *Terminal, cmd string, p IPacket) {
 			p.UpdateCmds("err", "wait res timeout")
 			return
 		}
-		_, _, rid := msgRes.btrIDS()
+		_, _, rid := msgRes.BTRids()
 		if rid != t.RID() {
 			c.Log(log.Fields{
 				"tid":     t.Name,
@@ -173,20 +172,13 @@ func (c *TerminalCallback) processReqSend(t *Terminal, cmd string, p IPacket) {
 }
 
 func (c *TerminalCallback) processResSend(t *Terminal, p IPacket) {
-	// TODO res_remote
 	msg := p.ToMsg()
 	if msg == nil {
 		p.UpdateCmds("err", "res_send msg decode fail")
 		return
 	}
 
-	dest, tid, _ := msg.btrIDS()
-
-	addr := t.Manager.DestAddr(dest)
-	if addr != manage.AddrLocal {
-		p.UpdateCmds("err", fmt.Sprintf("unsupported remote response to %q(%s)", dest, addr))
-		return
-	}
+	_, tid, _ := msg.BTRids()
 
 	queue := t.MsgQueue(tid)
 	if queue == nil {
@@ -223,7 +215,10 @@ func (c *TerminalCallback) processReg(t *Terminal, p IPacket) {
 			panic(errors.New("unfound mapQueue with server"))
 		}
 		services := strings.Split(args[1], ",")
-		poper = NewMultiMsgQueuePoper(mapQueue, services)
+		poper = NewMultiMsgQueuePoper(
+			mapQueue, services,
+			t.Conf.MultiMsgQueuePoperTimeout,
+			t.Conf.MsgQueueOpTimeout)
 
 		t.Manager.MapSet(manage.IDMapConf, subToken, poper)
 	}

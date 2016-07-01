@@ -84,13 +84,13 @@ var mutexQueueBuild sync.Mutex
 
 // NewMultiMsgQueuePoper 构造多队列读取者
 // 每个 goroutine 各自持有自己的 MultiMsgQueuePoper，不能共享该实例
-func NewMultiMsgQueuePoper(mapQueue cmap.ConcurrentMap, keys []string) *MultiMsgQueuePoper {
+func NewMultiMsgQueuePoper(mapQueue cmap.ConcurrentMap, keys []string, msPoperTimeout int, msQueueTimeout int) *MultiMsgQueuePoper {
 	poper := &MultiMsgQueuePoper{}
 
 	size := len(keys)
 
 	poper.posTimer = size
-	poper.timeoutPop = time.Duration(MsgQueuePopTimeoutDefault) * time.Millisecond
+	poper.timeoutPop = time.Duration(msPoperTimeout) * time.Millisecond
 	poper.selCase = make([]reflect.SelectCase, size+1)
 
 	var op *MsgQueue
@@ -106,7 +106,7 @@ func NewMultiMsgQueuePoper(mapQueue cmap.ConcurrentMap, keys []string) *MultiMsg
 		}
 
 		if op == nil {
-			op = NewMsgQueue(MsgQueueOpTimeoutDefault)
+			op = NewMsgQueue(msQueueTimeout)
 			mapQueue.Set(key, op)
 		}
 

@@ -34,17 +34,21 @@ func main() {
 	m := manage.NewBroker(name, *pathConf)
 	m.SetVerbose(*verbose)
 	m.MapSet(manage.IDMapQueue, manage.KeyJobQueue,
-		tio.NewMsgQueueWithSize(tio.MsgQueueOpTimeoutDefault, tio.JobPutWorkerSizeDefault))
+		tio.NewMsgQueueWithSize(tio.JobQueueOpTimeoutDefault, tio.JobPutWorkerSizeDefault))
 
 	// job worker
 	if !*nojob {
 		for i := 0; i < tio.JobPutWorkerSizeDefault; i++ {
-			w := tio.NewJobPutWorker(m)
+			jobClient := tio.NewBeanJobClient(tio.AddrJobServerDefault)
+			w := tio.NewJobPutWorker(m, jobClient)
 			go w.Run()
 		}
+		// TODO: add reg config sync callback
+		// change the CrontabJobList
+		// w := tio.NewCrontabWroker(manager, client, msInterval)
 	}
 
 	// server
 	server := new(tio.TCPServer)
-	server.Listen(m, ":6636")
+	server.Listen(m, nil)
 }
