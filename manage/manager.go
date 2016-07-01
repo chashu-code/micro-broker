@@ -1,6 +1,7 @@
 package manage
 
 import (
+	"container/list"
 	"sort"
 	"strings"
 	"sync"
@@ -42,6 +43,9 @@ const (
 	// KeyServiceRoute 服务路由
 	KeyServiceRoute = "#SROUTE"
 
+	// KeyCronJob
+	KeyCronJob = "#CRONJOB"
+
 	// AddrLocal 本地地址
 	AddrLocal = "local"
 )
@@ -52,6 +56,9 @@ const (
 	// IDMapQueue 队列表Id
 	IDMapQueue
 )
+
+// ConfigSyncCallback 配置信息同步回调
+type ConfigSyncCallback func()
 
 // IManager 管理接口
 type IManager interface {
@@ -69,15 +76,18 @@ type IManager interface {
 	Shutdown()
 	WaitAdd()
 	WaitDone()
+	RegConfigSyncCallback(ConfigSyncCallback)
+	SyncConfig(map[string]interface{})
 }
 
 // Manager 管理基本功能
 type Manager struct {
-	verbose       bool
-	name          string
-	mapCatalog    map[uint8]cmap.ConcurrentMap
-	chanStop      chan struct{}
-	waitGroupStop *sync.WaitGroup
+	verbose             bool
+	name                string
+	mapCatalog          map[uint8]cmap.ConcurrentMap
+	chanStop            chan struct{}
+	waitGroupStop       *sync.WaitGroup
+	lstConfSyncCallback *list.List
 }
 
 func (m *Manager) WaitAdd() {
@@ -116,6 +126,7 @@ func (m *Manager) Init(name string) {
 	m.mapCatalog[IDMapQueue] = cmap.New()
 	m.chanStop = make(chan struct{}, 0)
 	m.waitGroupStop = &sync.WaitGroup{}
+	m.lstConfSyncCallback = list.New()
 }
 
 func (m *Manager) Verbose() bool {
@@ -173,16 +184,16 @@ func (m *Manager) DestAddr(dest string) string {
 	return AddrLocal
 }
 
-func (m *Manager) updateWithSyncInfo(info map[string]interface{}) {
-	var ok bool
-	var vStr string
-	// var vMap map[string]interface{}
-	// var routeMap map[string]interface{}
+// RegConfigSyncCallback 注册配置信息同步回调
+func (m *Manager) RegConfigSyncCallback(cb ConfigSyncCallback) {
+	m.lstConfSyncCallback.PushBack(cb)
+}
 
+func (m *Manager) SyncConfig(info map[string]interface{}) {
 	for k, v := range info {
 		switch k {
 		case KeyBrokersOnline, KeyGateWaysOnline:
-			if vStr, ok = v.(string); ok {
+			if vStr, ok := v.(string); ok {
 				m.MapSet(IDMapConf, k, PickBrokersFromStr(vStr))
 			}
 		case KeyServiceRoute:
@@ -204,6 +215,11 @@ func (m *Manager) updateWithSyncInfo(info map[string]interface{}) {
 		default:
 			m.MapSet(IDMapConf, k, v)
 		}
+	}
+
+	for e := m.lstConfSyncCallback.Front(); e != nil; e = e.Next() {
+		cb := e.Value.(ConfigSyncCallback)
+		cb()
 	}
 }
 

@@ -12,14 +12,13 @@ type Broker struct {
 }
 
 // NewBroker 构造一个新的代理Broker
-func NewBroker(name string, pathConfig string) *Broker {
+func NewBroker(name string) *Broker {
 	b := new(Broker)
 	b.Init(name)
-	b.updateWithConfFile(pathConfig)
 	return b
 }
 
-func (m *Broker) updateWithConfFile(path string) {
+func (m *Broker) UpdateWithConfFile(path string) {
 	if path != "" {
 		data, err := ioutil.ReadFile(path)
 		if err != nil {
@@ -31,7 +30,7 @@ func (m *Broker) updateWithConfFile(path string) {
 			panic(fmt.Errorf("config decode fail: %v", err))
 		}
 
-		m.updateWithSyncInfo(conf)
+		m.SyncConfig(conf)
 	}
 
 }
