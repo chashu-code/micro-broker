@@ -139,14 +139,14 @@ func (w *CrontabWroker) process() {
 			break
 		}
 
-		// 设置下次工作时间
-		item.WillWorkAt = now + (int64)(item.Interval)
-
 		// 时间限制均不为 0 才生效，若当前时间不在许可范围内，则跳过
 		if (item.HMLimitStart != 0 && item.HMLimitEnd != 0) &&
 			(item.HMLimitStart > hmNow || item.HMLimitEnd < hmNow) {
 			continue
 		}
+
+		// 设置下次工作时间
+		item.WillWorkAt = now + (int64)(item.Interval)
 
 		// 检测是否无待处理或正在处理的任务？
 		if stats, err := w.client.Stats(item.Tube); err != nil {
