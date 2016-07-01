@@ -53,7 +53,7 @@ func (c *BeanJobClient) Put(tube string, body []byte, pri uint32, delay, ttr tim
 	return id, err
 }
 
-// Stats 返回tube状态
+// Stats 返回tube状态,unfound 返回 nil,nil
 func (c *BeanJobClient) Stats(tube string) (map[string]string, error) {
 	if err := c.connect(); err != nil {
 		return nil, err
@@ -61,7 +61,13 @@ func (c *BeanJobClient) Stats(tube string) (map[string]string, error) {
 
 	t := c.getTube(tube)
 	info, err := t.Stats()
-	c.closeIfEOF("BeanJobClient stats fail", err) // 若发生错误，则关闭链接
+	if conErr, ok := err.(beanstalk.ConnError); ok {
+		if conErr.Err == beanstalk.ErrNotFound {
+			return nil, nil
+		}
+	}
+
+	c.closeIfEOF("BeanJobClient stats ["+tube+"] fail", err) // 若发生错误，则关闭链接
 	return info, err
 }
 
