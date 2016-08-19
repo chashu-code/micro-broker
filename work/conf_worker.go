@@ -5,6 +5,7 @@ import (
 
 	"github.com/chashu-code/micro-broker/manage"
 	rxpool "github.com/mediocregopher/radix.v2/pool"
+	"github.com/mediocregopher/radix.v2/redis"
 	"github.com/uber-go/zap"
 )
 
@@ -55,6 +56,12 @@ func (w *ConfWorker) processSync() error {
 func (w *ConfWorker) processCrontab(pool *rxpool.Pool) error {
 	tabName := w.mgr.CrontabName()
 	res := pool.Cmd("hget", tabName, "v")
+
+	// 无有效信息，退出
+	if res.IsType(redis.Nil) {
+		return nil
+	}
+
 	if v, err := res.Str(); err != nil {
 		w.Log.Warn("get crontab version fail.", zap.Error(err))
 		return err
