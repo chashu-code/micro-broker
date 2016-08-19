@@ -2,57 +2,64 @@ package main
 
 import (
 	"flag"
+	"fmt"
+	"io/ioutil"
 	"os"
 	"runtime"
+	"strings"
 
 	"github.com/chashu-code/micro-broker/manage"
-	"github.com/chashu-code/micro-broker/tio"
+	"github.com/chashu-code/micro-broker/pool"
+	"github.com/chashu-code/micro-broker/protocol"
+	"github.com/chashu-code/micro-broker/work"
+	"github.com/uber-go/zap"
 )
 
-var gateWayURI = flag.String("g", "redis://127.0.0.1:6379", "指定可链接到 Monitor 的网关")
-var brokerName = flag.String("n", "", "指定 Broker 名称（ 默认采用 os.Hostname ）")
-var pathConf = flag.String("c", "", "JSON 配置文件路径（ 通常仅用于开发环境 ）")
-var isMonitor = flag.Bool("monitor", false, "若指定，则以 Monitor 的方式运行")
-var verbose = flag.Bool("verbose", false, "若指定，则以 Monitor 的方式运行")
-var nojob = flag.Bool("nojob", false, "若指定，则不对job进行处理")
+var ipConf = flag.String("ipconf", "127.0.0.1:6379", "指定可链接到配置redis，多个可以用,隔开")
+var logPath = flag.String("log", "", "指定日志文件路径，若不指定，则直接输出到终端")
+
+// var brokerName = flag.String("n", "", "指定 Broker 名称（ 默认采用 os.Hostname ）")
+// var pathConf = flag.String("c", "", "JSON 配置文件路径（ 通常仅用于开发环境 ）")
+
+var pathPID = flag.String("p", "", "pid file path")
+
+// var isMonitor = flag.Bool("monitor", false, "若指定，则以 Monitor 的方式运行")
+// var verbose = flag.Bool("verbose", false, "若指定，则以 Monitor 的方式运行")
+
+// var nojob = flag.Bool("nojob", false, "若指定，则不对job进行处理")
 
 func main() {
 	flag.Parse()
-
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
-	name := *brokerName
-	var err error
-	if name == "" {
-		name, err = os.Hostname()
-		if err != nil {
-			panic(err)
+	conf := manage.NewConfig()
+	conf.RedisPoolMap = pool.NewRedisPoolMap()
+	conf.BeanPoolMap = pool.NewBeanPoolMap()
+	conf.LogLevel = zap.InfoLevel
+
+	// 设定配置Redis Url, 默认为本地 redis
+	if *ipConf != "" {
+		if ip := strings.Split(*ipConf, ",")[0]; ip != "" {
+			conf.IPConf = ip
 		}
 	}
 
-	// manager
-	m := manage.NewBroker(name)
-	m.SetVerbose(*verbose)
-	m.MapSet(manage.IDMapQueue, manage.KeyJobQueue,
-		tio.NewMsgQueueWithSize(tio.JobQueueOpTimeoutDefault, tio.JobPutWorkerSizeDefault))
-
-	// job worker
-	if !*nojob {
-		for i := 0; i < tio.JobPutWorkerSizeDefault; i++ {
-			jobClient := tio.NewBeanJobClient(tio.AddrJobServerDefault)
-			w := tio.NewJobPutWorker(m, jobClient)
-			go w.Run()
-		}
-		// TODO: add reg config sync callback
-		// change the CrontabJobList
-		jobClient := tio.NewBeanJobClient(tio.AddrJobServerDefault)
-		w := tio.NewCrontabWroker(m, jobClient, 1000)
-		go w.Run()
+	if *logPath != "" {
+		conf.LogPath = *logPath
 	}
 
-	m.UpdateWithConfFile(*pathConf)
+	mgr := manage.NewManager(conf)
+	mgr.SubWrkRun = work.SubWorkerRun
+	mgr.CarryWrkRun = work.CarryWorkerRun
+	mgr.ConfWrkRun = work.ConfWorkerRun
+	mgr.CrontabWrkRun = work.CrontabWorkerRun
+	mgr.AddProtocolGenFn(1, protocol.NewV1Protocol)
 
-	// server
-	server := new(tio.TCPServer)
-	server.Listen(m, nil)
+	// pid file
+	if *pathPID != "" {
+		pid := fmt.Sprintf("%v", os.Getpid())
+		ioutil.WriteFile(*pathPID, ([]byte)(pid), 0666)
+	}
+
+	mgr.Start()
 }
