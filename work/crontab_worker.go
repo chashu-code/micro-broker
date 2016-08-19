@@ -193,7 +193,7 @@ func (w *CrontabWorker) process() error {
 	var btsMsg []byte
 	nowST := time.Now().Unix()
 	msg := &manage.Msg{
-		Action: "ActJob",
+		Action: manage.ActJob,
 		Data:   nowST,
 		V:      1,
 	}
