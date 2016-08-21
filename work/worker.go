@@ -3,6 +3,7 @@ package work
 import (
 	"github.com/chashu-code/micro-broker/manage"
 	"github.com/chashu-code/micro-broker/pool"
+	"github.com/chashu-code/micro-broker/utils"
 	"github.com/uber-go/zap"
 )
 
@@ -36,14 +37,16 @@ func (w *Worker) Run(mgr *manage.Manager, wrkName string, proc WrkProcFn) {
 		w.beanPoolMap = pmap
 	}
 
-	w.Log.Debug("worker run")
+	w.Log.Info("worker run")
 
 	mgr.WaitAdd()
 
-	defer func() {
-		w.Log.Debug("worker stop")
+	defer utils.LogRecover(w.Log, "worker stop", func(e interface{}) {
 		mgr.WaitDone()
-	}()
+		if e != nil {
+			panic(e)
+		}
+	})
 
 	for !mgr.IsShutdown() {
 		w.process()

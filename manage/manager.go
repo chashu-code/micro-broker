@@ -57,7 +57,7 @@ type Manager struct {
 	CarryWrkRun    WrkRunFn
 	ConfWrkRun     WrkRunFn
 	CrontabWrkRun  WrkRunFn
-	protocolGenMap map[int]ProtocolGenFn
+	protocolGenMap map[uint]ProtocolGenFn
 
 	chanStop      chan struct{}
 	waitGroupStop *sync.WaitGroup
@@ -72,9 +72,7 @@ type Manager struct {
 func NewManager(conf *Config) *Manager {
 	m := &Manager{
 		Conf:           conf,
-		RedisPoolMap:   conf.RedisPoolMap,
-		BeanPoolMap:    conf.BeanPoolMap,
-		protocolGenMap: make(map[int]ProtocolGenFn),
+		protocolGenMap: make(map[uint]ProtocolGenFn),
 		tidLock:        new(sync.RWMutex),
 	}
 	m.Log = m.genLog(conf.LogPath)
@@ -128,21 +126,23 @@ func (m *Manager) NextTID() string {
 		m.tid = 1
 	}
 
-	return m.IP() + "/" + strconv.FormatInt(time.Now().Unix(), 10) + "." + strconv.Itoa(m.tid)
+	return m.IP() + "/" + strconv.FormatInt(time.Now().Unix(), 10) + "/" + strconv.Itoa(m.tid)
 }
 
 // Start 运行
 func (m *Manager) Start() {
-	m.ConfWrkRun(m, m.Conf.IPConf, 1)
-	m.CarryWrkRun(m, "", m.Conf.CarryWorkerCount)
-	m.SubWrkRun(m, defaults.IPLocal, m.Conf.SubWrkCount)
-	m.CrontabWrkRun(m, defaults.IPLocal, 1)
+	defer utils.LogRecover(m.Log, "manager shutdown", nil)
 
 	m.Log.Info("manager start",
 		zap.String("ipConf", m.Conf.IPConf),
 		zap.Int("subWrkCount", m.Conf.SubWrkCount),
 		zap.Int("carryWrkCount", m.Conf.CarryWorkerCount),
 	)
+
+	m.ConfWrkRun(m, m.Conf.IPConf, 1)
+	m.CarryWrkRun(m, "", m.Conf.CarryWorkerCount)
+	m.SubWrkRun(m, defaults.IPLocal, m.Conf.SubWrkCount)
+	m.CrontabWrkRun(m, defaults.IPLocal, 1)
 
 	c := make(chan os.Signal)
 	signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
@@ -152,7 +152,7 @@ func (m *Manager) Start() {
 }
 
 // AddProtocolGenFn 添加对应版本的协议生成方法
-func (m *Manager) AddProtocolGenFn(v int, fn ProtocolGenFn) {
+func (m *Manager) AddProtocolGenFn(v uint, fn ProtocolGenFn) {
 	m.protocolGenMap[v] = fn
 }
 
@@ -195,7 +195,6 @@ func (m *Manager) IsShutdown() bool {
 func (m *Manager) Shutdown() {
 	close(m.chanStop)
 	m.waitGroupStop.Wait()
-	m.Log.Info("manager shutdown")
 }
 
 // IP 内网地址
@@ -232,7 +231,7 @@ func (m *Manager) Unpack(bts []byte) (*Msg, error) {
 		return nil, errors.New("Unpack need []byte len > 1")
 	}
 
-	v := int(bts[0])
+	v := uint(bts[0])
 	gen := m.protocolGenMap[v]
 
 	if gen == nil {

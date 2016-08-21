@@ -27,8 +27,10 @@ func Test_Msg_FillWithReq(t *testing.T) {
 	assert.Empty(t, msg.TID)
 
 	msg.FillWithReq(mgr)
-	assert.NotEmpty(t, msg.BID)
-	assert.NotEmpty(t, msg.TID)
+	assert.Equal(t, mgr.IP(), msg.BID)
+	tid := mgr.NextTID()
+	assert.NotEqual(t, tid, msg.TID)
+	assert.Contains(t, msg.TID, mgr.IP())
 }
 
 func Test_Msg_IsDead(t *testing.T) {
@@ -36,12 +38,30 @@ func Test_Msg_IsDead(t *testing.T) {
 
 	assert.True(t, msg.IsDead())
 
-	msg.DeadLine = uint(time.Now().Unix() + 1)
+	msg.DeadLine = time.Now().Unix() + 1
 	assert.False(t, msg.IsDead())
 }
 
+func Test_Msg_TubeName(t *testing.T) {
+	msg := &Msg{}
+	assert.Empty(t, msg.TubeName())
+	msg.Topic = "abc"
+	assert.Equal(t, msg.Topic, msg.TubeName())
+	msg.Channel = "say"
+	assert.Equal(t, msg.Topic+"-"+msg.Channel, msg.TubeName())
+}
+
+func Test_Msg_ServiceName(t *testing.T) {
+	msg := &Msg{}
+	assert.Empty(t, msg.ServiceName())
+	msg.Topic = "abc"
+	assert.Equal(t, msg.Topic, msg.ServiceName())
+	msg.Channel = "say"
+	assert.Equal(t, msg.Topic+"/"+msg.Channel, msg.ServiceName())
+}
+
 func Test_Msg_Clone(t *testing.T) {
-	now := uint(time.Now().Unix())
+	now := time.Now().Unix()
 
 	msg := &Msg{
 		Topic:    "topic",

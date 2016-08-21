@@ -13,9 +13,6 @@ type Config struct {
 	SubWrkCount      int
 	CarryWorkerCount int
 
-	RedisPoolMap IRedisPoolMap
-	BeanPoolMap  IBeanPoolMap
-
 	MsgQueueSize         int
 	MsgQueueTimeoutMSecs int
 

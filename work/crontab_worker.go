@@ -197,6 +197,8 @@ func (w *CrontabWorker) process() error {
 		Data:   nowST,
 		V:      1,
 	}
+	msg.FillWithReq(w.mgr)
+
 	btsMsg, err = w.mgr.Pack(msg)
 	if err != nil {
 		w.Log.Error("pack crontab job fail", zap.Error(err))

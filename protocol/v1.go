@@ -12,8 +12,8 @@ type V1Protocol struct {
 	Topic    string `msg:"topic"`
 	Channel  string `msg:"chan"`
 	Nav      string `msg:"nav"`
-	SendTime uint   `msg:"st"`
-	DeadLine uint   `msg:"dl"`
+	SendTime int64  `msg:"st"`
+	DeadLine int64  `msg:"dl"`
 
 	Data interface{} `msg:"data"`
 	Code string      `msg:"code"`

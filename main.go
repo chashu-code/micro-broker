@@ -33,8 +33,6 @@ func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
 	conf := manage.NewConfig()
-	conf.RedisPoolMap = pool.NewRedisPoolMap()
-	conf.BeanPoolMap = pool.NewBeanPoolMap()
 	conf.LogLevel = zap.InfoLevel
 
 	// 设定配置Redis Url, 默认为本地 redis
@@ -49,6 +47,8 @@ func main() {
 	}
 
 	mgr := manage.NewManager(conf)
+	mgr.RedisPoolMap = pool.NewRedisPoolMap()
+	mgr.BeanPoolMap = pool.NewBeanPoolMap()
 	mgr.SubWrkRun = work.SubWorkerRun
 	mgr.CarryWrkRun = work.CarryWorkerRun
 	mgr.ConfWrkRun = work.ConfWorkerRun

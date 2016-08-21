@@ -26,13 +26,13 @@ type Msg struct {
 	Topic    string
 	Channel  string
 	Nav      string
-	SendTime uint
-	DeadLine uint
+	SendTime int64
+	DeadLine int64
 
 	Data interface{}
 	Code string
 
-	V int
+	V uint
 }
 
 // MarshalLog zap log 序列化接口方法
@@ -44,8 +44,8 @@ func (msg *Msg) MarshalLog(kv zap.KeyValue) error {
 	kv.AddString("topic", msg.Topic)
 	kv.AddString("chan", msg.Channel)
 	kv.AddString("nav", msg.Nav)
-	kv.AddUint("st", msg.SendTime)
-	kv.AddUint("dl", msg.DeadLine)
+	kv.AddInt64("st", msg.SendTime)
+	kv.AddInt64("dl", msg.DeadLine)
 	kv.AddString("code", msg.Code)
 	kv.AddObject("data", msg.Data)
 
@@ -82,18 +82,19 @@ func (msg *Msg) Clone(action string) *Msg {
 
 // TubeName 返回Job TubeName
 func (msg *Msg) TubeName() string {
-	if msg.Channel == "" {
-		return msg.Topic
-	}
-	return msg.Topic + "-" + msg.Channel
+	return msg.comboName("-")
 }
 
 // ServiceName 返回 ServiceName
 func (msg *Msg) ServiceName() string {
+	return msg.comboName("/")
+}
+
+func (msg *Msg) comboName(join string) string {
 	if msg.Channel == "" {
 		return msg.Topic
 	}
-	return msg.Topic + "/" + msg.Channel
+	return msg.Topic + join + msg.Channel
 }
 
 // PidOfRID 从RID中分析Pid
@@ -118,5 +119,5 @@ func (msg *Msg) FillWithReq(mgr *Manager) {
 
 // IsDead 是否已过期？
 func (msg *Msg) IsDead() bool {
-	return int64(msg.DeadLine) <= time.Now().Unix()
+	return msg.DeadLine < time.Now().Unix()
 }
