@@ -12,8 +12,8 @@ type V1Protocol struct {
 	Topic    string `msg:"topic"`
 	Channel  string `msg:"chan"`
 	Nav      string `msg:"nav"`
-	SendTime int64  `msg:"st"`
-	DeadLine int64  `msg:"dl"`
+	SendTime uint   `msg:"st"`
+	DeadLine uint   `msg:"dl"`
 
 	Data interface{} `msg:"data"`
 	Code string      `msg:"code"`
@@ -38,11 +38,11 @@ func (p *V1Protocol) BytesToMsg(bts []byte) (*manage.Msg, error) {
 		Topic:    p.Topic,
 		Channel:  p.Channel,
 		Nav:      p.Nav,
-		SendTime: p.SendTime,
-		DeadLine: p.DeadLine,
+		SendTime: int64(p.SendTime),
+		DeadLine: int64(p.DeadLine),
 		Data:     p.Data,
 		Code:     p.Code,
-		V:        1,
+		V:        uint(1),
 	}
 
 	return msg, nil
@@ -58,8 +58,8 @@ func (p *V1Protocol) MsgToBytes(msg *manage.Msg) ([]byte, error) {
 	p.Nav = msg.Nav
 	p.Code = msg.Code
 	p.Data = msg.Data
-	p.SendTime = msg.SendTime
-	p.DeadLine = msg.DeadLine
+	p.SendTime = uint(msg.SendTime)
+	p.DeadLine = uint(msg.DeadLine)
 
 	return p.MarshalMsg(nil)
 

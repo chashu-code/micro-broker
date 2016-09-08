@@ -18,7 +18,7 @@ func LogRecover(log zap.Logger, msg string, fn LogRecoverBackFn) {
 		if !ok {
 			err = fmt.Errorf("%v", r)
 		}
-		log.Error("unexpected "+msg, zap.Error(err))
+		log.Panic("unexpected "+msg, zap.Error(err))
 	} else {
 		log.Info(msg)
 	}

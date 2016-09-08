@@ -1,6 +1,7 @@
 package work
 
 import (
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -24,6 +25,9 @@ type CrontabJob struct {
 	LimitStart int
 	// LimitEnd  限制结束时间（ hour * 60 * 60 + minute * 60 + second）
 	LimitEnd int
+
+	// PutTimes 推送次数
+	PutTimes int
 }
 
 // CrontabJobList 有序定时任务列表
@@ -36,9 +40,11 @@ func (l CrontabJobList) Less(i, j int) bool { return l[i].WillWorkAt < l[j].Will
 // CrontabWorker 定时工作器
 type CrontabWorker struct {
 	Worker
+	V string
 
-	V    string
-	jobs CrontabJobList
+	jobs      CrontabJobList
+	re        *regexp.Regexp
+	lastLogAt int64 // 上次记录时间
 }
 
 // CrontabWorkerRun 运行1个CrontabWorker
@@ -75,25 +81,34 @@ func hmstoi(hms string) int {
 	return result
 }
 
-func hms2toi(hms2 string) (int, int) {
-	arr := strings.SplitN(hms2, ",", 2)
-	if len(arr) == 2 {
-		return hmstoi(arr[0]), hmstoi(arr[1])
+var reDSL = regexp.MustCompile(`^(\d+[hms])(\|(\d{1,2}:\d{1,2}:\d{1,2}),(\d{1,2}:\d{1,2}:\d{1,2}))?$`)
+
+func dslToJob(name, dsl string) *CrontabJob {
+	// dsl 规则
+	// 12m  => 每12分钟执行一次
+	// 12m|13:00:00,14:00:00 => 在 > 13点 && < 14点 范围内，每12m 执行一次
+	ss := reDSL.FindStringSubmatch(dsl)
+	if len(ss) == 5 {
+		if dur, err := time.ParseDuration(ss[1]); err == nil {
+			return &CrontabJob{
+				Tube:       name,
+				Interval:   int(dur.Seconds()),
+				LimitStart: hmstoi(ss[3]),
+				LimitEnd:   hmstoi(ss[4]),
+			}
+		}
 	}
-	return 0, 0
+	return nil
 }
 
 // updateJobs 更新任务列表
 func (w *CrontabWorker) updateJobs() bool {
-	// dsl Map 规则
-	// name => 12m  => 每12分钟执行一次
-	// name => 12m|13:00:00,14:00:00 => 在 > 13点 && < 14点 范围内，每12m 执行一次
 
 	dslMap := w.mgr.Conf.CrontabJobDslMap
 	v := dslMap["v"]
 
-	// 如果 v 无效，或者没有更新，则退出
-	if v == "" || w.V == v {
+	// 如果 v 没有更新，则退出
+	if w.V == v {
 		return false
 	}
 
@@ -108,29 +123,13 @@ func (w *CrontabWorker) updateJobs() bool {
 			continue
 		}
 
-		hmsStart := 0
-		hmsEnd := 0
-		durS := dsl
+		job := dslToJob(name, dsl)
 
-		if strings.Contains(dsl, "|") {
-			arr := strings.SplitN(dsl, "|", 2)
-			if len(arr) == 2 {
-				durS = arr[0]
-				hmsStart, hmsEnd = hms2toi(arr[1])
-			}
-		}
-
-		if dur, err := time.ParseDuration(durS); err == nil {
-			job := &CrontabJob{
-				Tube:       name,
-				Interval:   int(dur.Seconds()),
-				LimitStart: hmsStart,
-				LimitEnd:   hmsEnd,
-			}
-
+		if job != nil {
 			jobs = append(jobs, job)
-
 			w.Log.Info("add CrontabJob", zap.Object("job", job))
+		} else {
+			w.Log.Warn("wrong CrontabJob DSL", zap.String("name", name), zap.String("dsl", dsl))
 		}
 	}
 
@@ -138,7 +137,7 @@ func (w *CrontabWorker) updateJobs() bool {
 	return true
 }
 
-func (w *CrontabWorker) getWrkJobs() []*CrontabJob {
+func (w *CrontabWorker) getWrkJobs(now time.Time) []*CrontabJob {
 	jobs := w.jobs
 	wrkJobs := []*CrontabJob{}
 
@@ -149,7 +148,6 @@ func (w *CrontabWorker) getWrkJobs() []*CrontabJob {
 	// 结束时，重新排序
 	defer sort.Sort(jobs)
 
-	now := time.Now()
 	nowST := now.Unix()
 	h, m, s := now.Clock()
 	hmsNow := h*60*60 + m*60 + s
@@ -172,26 +170,51 @@ func (w *CrontabWorker) getWrkJobs() []*CrontabJob {
 	return wrkJobs
 }
 
-func (w *CrontabWorker) process() error {
-	// 每秒触发一次
-	time.Sleep(time.Second)
+func (w *CrontabWorker) logPuts(now time.Time) {
+	nowUnix := now.Unix()
+	// 10s记录一次；未足10s 或 jobs为空 退出
+	if w.lastLogAt+10 > nowUnix || len(w.jobs) == 0 {
+		return
+	}
+	w.lastLogAt = nowUnix
 
-	w.updateJobs()
+	var fields []zap.Field
 
-	jobs := w.getWrkJobs()
-	if len(jobs) < 1 {
-		// 无任务，不做特殊处理
-		return nil
+	for _, job := range w.jobs {
+		if job.PutTimes > 0 {
+			fields = append(fields, zap.Int(job.Tube, job.PutTimes))
+			job.PutTimes = 0
+		}
 	}
 
-	p, _, err := w.beanPoolMap.Fetch(defaults.IPLocal, w.mgr.Conf.JobPoolSize)
+	if len(fields) > 0 {
+		w.Log.Info("put statistics", fields...)
+	}
+}
+
+func (w *CrontabWorker) process() {
+	// 每秒触发一次
+	time.Sleep(time.Second)
+	w.processWithTime(time.Now())
+}
+
+func (w *CrontabWorker) processWithTime(now time.Time) {
+	w.updateJobs()
+
+	jobs := w.getWrkJobs(now)
+	if len(jobs) < 1 {
+		// 无任务，不做特殊处理
+		return
+	}
+
+	p, _, err := w.beanPoolMap.FetchOrNew(defaults.IPLocal, w.mgr.Conf.JobPoolSize)
 	if err != nil {
 		w.Log.Error("fetch local job pool fail", zap.Error(err))
-		return err
+		return
 	}
 
 	var btsMsg []byte
-	nowST := time.Now().Unix()
+	nowST := now.Unix()
 	msg := &manage.Msg{
 		Action: manage.ActJob,
 		Data:   nowST,
@@ -202,7 +225,7 @@ func (w *CrontabWorker) process() error {
 	btsMsg, err = w.mgr.Pack(msg)
 	if err != nil {
 		w.Log.Error("pack crontab job fail", zap.Error(err))
-		return err
+		return
 	}
 
 	err = p.With(func(c *pool.BeanClient) error {
@@ -218,11 +241,12 @@ func (w *CrontabWorker) process() error {
 			}
 
 			if stats == nil || (stats["current-jobs-ready"] == "0" && stats["current-jobs-reserved"] == "0") {
-				pri, delay, ttr, _ := c.PutArgsWithCode("")
+				pri, delay, ttr, _ := msg.CodeToPutArgs()
 				_, errPut = c.Put(item.Tube, btsMsg, pri, delay, ttr)
 				if errPut != nil {
 					return errPut
 				}
+				item.PutTimes++
 			}
 		}
 
@@ -231,8 +255,7 @@ func (w *CrontabWorker) process() error {
 
 	if err != nil {
 		w.Log.Error("put crontjob fail", zap.Error(err))
-		return err
+	} else {
+		w.logPuts(now)
 	}
-
-	return nil
 }

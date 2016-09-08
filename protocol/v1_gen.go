@@ -58,12 +58,12 @@ func (z *V1Protocol) DecodeMsg(dc *msgp.Reader) (err error) {
 				return
 			}
 		case "st":
-			z.SendTime, err = dc.ReadInt64()
+			z.SendTime, err = dc.ReadUint()
 			if err != nil {
 				return
 			}
 		case "dl":
-			z.DeadLine, err = dc.ReadInt64()
+			z.DeadLine, err = dc.ReadUint()
 			if err != nil {
 				return
 			}
@@ -158,7 +158,7 @@ func (z *V1Protocol) EncodeMsg(en *msgp.Writer) (err error) {
 	if err != nil {
 		return err
 	}
-	err = en.WriteInt64(z.SendTime)
+	err = en.WriteUint(z.SendTime)
 	if err != nil {
 		return
 	}
@@ -167,7 +167,7 @@ func (z *V1Protocol) EncodeMsg(en *msgp.Writer) (err error) {
 	if err != nil {
 		return err
 	}
-	err = en.WriteInt64(z.DeadLine)
+	err = en.WriteUint(z.DeadLine)
 	if err != nil {
 		return
 	}
@@ -219,10 +219,10 @@ func (z *V1Protocol) MarshalMsg(b []byte) (o []byte, err error) {
 	o = msgp.AppendString(o, z.Nav)
 	// string "st"
 	o = append(o, 0xa2, 0x73, 0x74)
-	o = msgp.AppendInt64(o, z.SendTime)
+	o = msgp.AppendUint(o, z.SendTime)
 	// string "dl"
 	o = append(o, 0xa2, 0x64, 0x6c)
-	o = msgp.AppendInt64(o, z.DeadLine)
+	o = msgp.AppendUint(o, z.DeadLine)
 	// string "data"
 	o = append(o, 0xa4, 0x64, 0x61, 0x74, 0x61)
 	o, err = msgp.AppendIntf(o, z.Data)
@@ -287,12 +287,12 @@ func (z *V1Protocol) UnmarshalMsg(bts []byte) (o []byte, err error) {
 				return
 			}
 		case "st":
-			z.SendTime, bts, err = msgp.ReadInt64Bytes(bts)
+			z.SendTime, bts, err = msgp.ReadUintBytes(bts)
 			if err != nil {
 				return
 			}
 		case "dl":
-			z.DeadLine, bts, err = msgp.ReadInt64Bytes(bts)
+			z.DeadLine, bts, err = msgp.ReadUintBytes(bts)
 			if err != nil {
 				return
 			}
@@ -319,6 +319,6 @@ func (z *V1Protocol) UnmarshalMsg(bts []byte) (o []byte, err error) {
 
 // Msgsize returns an upper bound estimate of the number of bytes occupied by the serialized message
 func (z *V1Protocol) Msgsize() (s int) {
-	s = 1 + 4 + msgp.StringPrefixSize + len(z.Action) + 4 + msgp.StringPrefixSize + len(z.BID) + 4 + msgp.StringPrefixSize + len(z.RID) + 4 + msgp.StringPrefixSize + len(z.TID) + 6 + msgp.StringPrefixSize + len(z.Topic) + 5 + msgp.StringPrefixSize + len(z.Channel) + 4 + msgp.StringPrefixSize + len(z.Nav) + 3 + msgp.Int64Size + 3 + msgp.Int64Size + 5 + msgp.GuessSize(z.Data) + 5 + msgp.StringPrefixSize + len(z.Code)
+	s = 1 + 4 + msgp.StringPrefixSize + len(z.Action) + 4 + msgp.StringPrefixSize + len(z.BID) + 4 + msgp.StringPrefixSize + len(z.RID) + 4 + msgp.StringPrefixSize + len(z.TID) + 6 + msgp.StringPrefixSize + len(z.Topic) + 5 + msgp.StringPrefixSize + len(z.Channel) + 4 + msgp.StringPrefixSize + len(z.Nav) + 3 + msgp.UintSize + 3 + msgp.UintSize + 5 + msgp.GuessSize(z.Data) + 5 + msgp.StringPrefixSize + len(z.Code)
 	return
 }

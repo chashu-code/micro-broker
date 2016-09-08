@@ -40,32 +40,12 @@ func Test_BeanClient_Stats(t *testing.T) {
 	assert.NotEmpty(t, info)
 }
 
-func Test_BeanClient_PutArgsWithCode(t *testing.T) {
-	c := okBeanClient()
-	for _, code := range []string{"", "aaa", "11|11"} {
-		pri, delay, ttr, err := c.PutArgsWithCode(code)
-		assert.Nil(t, err)
-		assert.Equal(t, uint32(100), pri)
-		assert.Equal(t, time.Duration(0), delay)
-		assert.Equal(t, 5*time.Minute, ttr)
-	}
-	code := "2|x|4"
-	pri, delay, ttr, err := c.PutArgsWithCode(code)
-	assert.Error(t, err)
-
-	code = "2|3|4"
-	pri, delay, ttr, err = c.PutArgsWithCode(code)
-	assert.Nil(t, err)
-	assert.Equal(t, uint32(2), pri)
-	assert.Equal(t, 3*time.Second, delay)
-	assert.Equal(t, 4*time.Second, ttr)
-}
-
 func Test_BeanClient_Put(t *testing.T) {
 	c := okBeanClient()
 	data := []byte("hello")
-	code := "2|3|4"
-	pri, delay, ttr, _ := c.PutArgsWithCode(code)
+	pri := uint32(0)
+	delay := time.Duration(0)
+	ttr := 5 * time.Minute
 	_, errPut := c.Put("default", data, pri, delay, ttr)
 	assert.Nil(t, errPut)
 }

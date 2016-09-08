@@ -1,13 +1,13 @@
 package work
 
 import (
-	"errors"
 	"strconv"
+
+	rxpool "github.com/mediocregopher/radix.v2/pool"
 
 	"github.com/chashu-code/micro-broker/defaults"
 	"github.com/chashu-code/micro-broker/manage"
 	"github.com/chashu-code/micro-broker/pool"
-	rxpool "github.com/mediocregopher/radix.v2/pool"
 	"github.com/uber-go/zap"
 )
 
@@ -24,51 +24,51 @@ func CarryWorkerRun(mgr *manage.Manager, ip string, count int) {
 	}
 }
 
-func (w *CarryWorker) process() error {
+func (w *CarryWorker) logMsg(info string, msg *manage.Msg) {
+	w.Log.Info(info, msgPackField(msg))
+}
+
+func (w *CarryWorker) process() {
 	msg, ok := w.mgr.MsgQ.Pop(true)
 	if !ok {
-		return errors.New("msgQ empty")
-	}
-
-	logMsg := func(info string) {
-		w.Log.Info(info, zap.Marshaler("msgHash", msg))
+		return
 	}
 
 	switch msg.Action {
 	case manage.ActReq:
-		msg.FillWithReq(w.mgr)
-		logMsg("req --->>")
-		return w.processReq(msg)
+		w.processReq("req --->>", msg)
 	case manage.ActRes:
-		logMsg("res <<---")
-		return w.processRes(msg)
+		w.processRes("res <<---", msg)
 	case manage.ActJob:
-		msg.FillWithReq(w.mgr)
-		logMsg("job --->>")
-		return w.processJob(msg)
+		w.processJob("job --->>", msg)
 	default:
-		logMsg("?? --- can't carry")
-		return nil
+		w.logMsg("?? --- can't carry", msg)
 	}
 }
 
-func (w *CarryWorker) processReq(msg *manage.Msg) error {
+func (w *CarryWorker) processReq(log string, msg *manage.Msg) {
 	// TODO router / connect
-	return w.pushMsg(defaults.IPLocal, msg.Topic, msg)
+	msg.FillWithReq(w.mgr)
+	msg.BID = defaults.IPLocal // 暂时仅支持本机
+	w.logMsg(log, msg)
+	w.pushMsg(defaults.IPLocal, msg.Topic, msg)
 }
 
-func (w *CarryWorker) processJob(msg *manage.Msg) error {
+func (w *CarryWorker) processJob(log string, msg *manage.Msg) {
 	// TODO router
-	p, _, err := w.beanPoolMap.Fetch(defaults.IPLocal, w.mgr.Conf.JobPoolSize)
+	msg.FillWithReq(w.mgr)
+	w.logMsg(log, msg)
+
+	p, _, err := w.beanPoolMap.FetchOrNew(defaults.IPLocal, w.mgr.Conf.JobPoolSize)
 	if err != nil {
 		w.Log.Error("fetch local job pool fail", zap.Error(err))
-		return err
+		return
 	}
 
 	err = p.With(func(c *pool.BeanClient) error {
-		pri, delay, ttr, errWith := c.PutArgsWithCode(msg.Code)
+		pri, delay, ttr, errWith := msg.CodeToPutArgs()
 		if errWith != nil {
-			w.Log.Warn("put job code fail, use default.")
+			w.Log.Warn("put job code fail, use the default")
 		}
 
 		var bts []byte
@@ -83,47 +83,46 @@ func (w *CarryWorker) processJob(msg *manage.Msg) error {
 		return nil
 	})
 
+	msgRes := msg.Clone(manage.ActRes)
+
 	if err != nil {
-		w.Log.Error("put job fail", zap.Error(err))
-		return err
+		msgRes.Code = "500"
+		msgRes.Data = "put job fail:" + err.Error()
+	} else {
+		msgRes.Data = "ok"
 	}
 
-	msgRes := msg.Clone(manage.ActRes)
-	msgRes.Data = "ok"
-	w.Log.Info("job res <<---", zap.Marshaler("msgHash", msgRes))
-	return w.processRes(msgRes)
+	w.processRes("job res <<---", msgRes)
 }
 
-func (w *CarryWorker) processRes(msg *manage.Msg) error {
+func (w *CarryWorker) processRes(log string, msg *manage.Msg) {
+	w.logMsg(log, msg)
 	pid, err := msg.PidOfRID()
 	if err != nil {
 		w.Log.Error("get pid fail", zap.Error(err))
-		return err
+		return
 	}
-	return w.pushMsg(defaults.IPLocal, pid, msg)
+	w.pushMsg(defaults.IPLocal, pid, msg)
 }
 
-func (w *CarryWorker) pushMsg(destIP, boxName string, msg *manage.Msg) error {
+func (w *CarryWorker) pushMsg(destIP, boxName string, msg *manage.Msg) {
 
 	bts, err := w.mgr.Pack(msg)
 	if err != nil {
 		w.Log.Error("pack msg fail", zap.Error(err))
-		return err
+		return
 	}
 	var pool *rxpool.Pool
-	pool, _, err = w.redisPoolMap.Fetch(destIP, w.mgr.Conf.PoolSize)
+	pool, _, err = w.redisPoolMap.FetchOrNew(destIP, w.mgr.Conf.PoolSize)
 
 	if err != nil {
 		w.Log.Error("fetch "+destIP+" pool fail", zap.Error(err))
-		return err
+		return
 	}
 
 	res := pool.Cmd("rpush", w.mgr.Inbox(boxName), bts)
 
 	if res.Err != nil {
 		w.Log.Error("redis rpush fail", zap.Error(err))
-		return res.Err
 	}
-
-	return nil
 }

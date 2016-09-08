@@ -10,26 +10,40 @@ import (
 
 // RedisPoolMap redis connection pool map
 type RedisPoolMap struct {
-	lock    *sync.RWMutex
-	poolMap map[string]*rxpool.Pool
+	portTail string
+	lock     *sync.RWMutex
+	poolMap  map[string]*rxpool.Pool
 }
 
 // NewRedisPoolMap 构建一个新的RedisPoolMap
 func NewRedisPoolMap() *RedisPoolMap {
 	return &RedisPoolMap{
-		lock:    new(sync.RWMutex),
-		poolMap: make(map[string]*rxpool.Pool),
+		portTail: ":6379",
+		lock:     new(sync.RWMutex),
+		poolMap:  make(map[string]*rxpool.Pool),
 	}
 }
 
-// Fetch 获取或者构造指定路径的 RedisPool，result => pool, is_new, error
-func (pmap *RedisPoolMap) Fetch(ip string, size int) (*rxpool.Pool, bool, error) {
+// Fetch 获取ip对应的 RedisPool
+func (pmap *RedisPoolMap) Fetch(ip string) *rxpool.Pool {
+	addr := pmap.ipToAddr(ip)
+	return pmap.poolMap[addr]
+}
+
+func (pmap *RedisPoolMap) ipToAddr(ip string) string {
 	addr := ip
 	if ip == defaults.IPLocal {
-		addr = "127.0.0.1:6379"
+		addr = "127.0.0.1" + pmap.portTail
 	} else if !strings.Contains(ip, ":") {
-		addr = ip + ":6379"
+		addr = ip + pmap.portTail
 	}
+	return addr
+}
+
+// FetchOrNew 获取或者构造指定路径的 RedisPool，result => pool, is_new, error
+func (pmap *RedisPoolMap) FetchOrNew(ip string, size int) (*rxpool.Pool, bool, error) {
+
+	addr := pmap.ipToAddr(ip)
 
 	pmap.lock.Lock()
 	defer pmap.lock.Unlock()

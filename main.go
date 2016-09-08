@@ -25,10 +25,10 @@ var pathPID = flag.String("p", "", "pid file path")
 
 // var isMonitor = flag.Bool("monitor", false, "若指定，则以 Monitor 的方式运行")
 // var verbose = flag.Bool("verbose", false, "若指定，则以 Monitor 的方式运行")
-
 // var nojob = flag.Bool("nojob", false, "若指定，则不对job进行处理")
 
 func main() {
+
 	flag.Parse()
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
@@ -53,6 +53,7 @@ func main() {
 	mgr.CarryWrkRun = work.CarryWorkerRun
 	mgr.ConfWrkRun = work.ConfWorkerRun
 	mgr.CrontabWrkRun = work.CrontabWorkerRun
+	mgr.ClearWrkRun = work.ClearWorkerRun
 	mgr.AddProtocolGenFn(1, protocol.NewV1Protocol)
 
 	// pid file

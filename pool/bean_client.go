@@ -2,7 +2,6 @@ package pool
 
 import (
 	"errors"
-	"strconv"
 	"strings"
 	"time"
 
@@ -44,37 +43,6 @@ func (c *BeanClient) Stats(tubeName string) (map[string]string, error) {
 	c.errCheck(err)
 
 	return info, err
-}
-
-// PutArgsWithCode 依据Code返回相应的Puts参数
-func (c *BeanClient) PutArgsWithCode(code string) (pri uint32, delay, ttr time.Duration, err error) {
-	arr := strings.SplitN(code, "|", 3)
-
-	pri = 100
-	delay = time.Duration(0)
-	ttr = 5 * time.Minute
-
-	if len(arr) == 3 {
-		var v uint64
-		v, err = strconv.ParseUint(arr[0], 10, 32)
-		if err != nil {
-			return
-		}
-		pri = uint32(v)
-
-		v, err = strconv.ParseUint(arr[1], 10, 32)
-		if err != nil {
-			return
-		}
-		delay = time.Duration(v) * time.Second
-
-		v, err = strconv.ParseUint(arr[2], 10, 32)
-		if err != nil {
-			return
-		}
-		ttr = time.Duration(v) * time.Second
-	}
-	return
 }
 
 // Put 推入任务

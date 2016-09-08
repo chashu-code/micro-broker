@@ -20,13 +20,15 @@ import (
 
 // IRedisPoolMap connection pool map interface
 type IRedisPoolMap interface {
-	Fetch(ip string, size int) (*rxpool.Pool, bool, error)
+	FetchOrNew(ip string, size int) (*rxpool.Pool, bool, error)
+	Fetch(ip string) *rxpool.Pool
 	// Pools() map[string]*rxpool.Pool
 }
 
 // IBeanPoolMap connection pool map interface
 type IBeanPoolMap interface {
-	Fetch(ip string, size int) (*pool.BeanPool, bool, error)
+	FetchOrNew(ip string, size int) (*pool.BeanPool, bool, error)
+	Fetch(ip string) *pool.BeanPool
 	// Pools() map[string]*rxpool.Pool
 }
 
@@ -57,6 +59,7 @@ type Manager struct {
 	CarryWrkRun    WrkRunFn
 	ConfWrkRun     WrkRunFn
 	CrontabWrkRun  WrkRunFn
+	ClearWrkRun    WrkRunFn
 	protocolGenMap map[uint]ProtocolGenFn
 
 	chanStop      chan struct{}
@@ -83,6 +86,7 @@ func NewManager(conf *Config) *Manager {
 	return m
 }
 
+// LogSync 日志同步
 func (m *Manager) LogSync() error {
 	if m.logWriter != nil {
 		return m.logWriter.Sync()
@@ -141,8 +145,9 @@ func (m *Manager) Start() {
 
 	m.ConfWrkRun(m, m.Conf.IPConf, 1)
 	m.CarryWrkRun(m, "", m.Conf.CarryWorkerCount)
-	m.SubWrkRun(m, defaults.IPLocal, m.Conf.SubWrkCount)
-	m.CrontabWrkRun(m, defaults.IPLocal, 1)
+	m.CrontabWrkRun(m, defaults.IPLocal, 1) // will make local bean pool
+	m.ConnectRedis(m.IP())                  // will make local redis pool
+	m.ClearWrkRun(m, m.IP(), 1)             // get local redis pool
 
 	c := make(chan os.Signal)
 	signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
@@ -215,10 +220,9 @@ func (m *Manager) IP() string {
 	return m.ip
 }
 
-// Connect 链接指定IP，并启动相应的SubWorker（如果是第一次链接）
-func (m *Manager) Connect(ip string) (interface{}, error) {
-	// TODO: 需要完善，在链接远程Redis时
-	p, isNew, err := m.RedisPoolMap.Fetch(ip, m.Conf.PoolSize)
+// ConnectRedis 链接指定IP，并启动相应的SubWorker（如果是第一次链接）
+func (m *Manager) ConnectRedis(ip string) (*rxpool.Pool, error) {
+	p, isNew, err := m.RedisPoolMap.FetchOrNew(ip, m.Conf.PoolSize)
 	if isNew {
 		m.SubWrkRun(m, ip, m.Conf.SubWrkCount)
 	}
@@ -237,7 +241,6 @@ func (m *Manager) Unpack(bts []byte) (*Msg, error) {
 	if gen == nil {
 		return nil, fmt.Errorf("Unpack with error version: %v", v)
 	}
-
 	return gen().BytesToMsg(bts[1:])
 }
 

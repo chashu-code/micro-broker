@@ -1,6 +1,7 @@
 package work
 
 import (
+	"errors"
 	"time"
 
 	"github.com/chashu-code/micro-broker/manage"
@@ -23,65 +24,70 @@ func ConfWorkerRun(mgr *manage.Manager, ip string, count int) {
 	w := &ConfWorker{
 		IP: ip,
 	}
-	go w.Run(mgr, "conf", w.process)
+	go w.Run(mgr, "conf:"+ip, w.process)
 }
 
-func (w *ConfWorker) process() error {
+func (w *ConfWorker) process() {
 	durPause := time.Duration(w.mgr.Conf.WrkPauseSecs) * time.Second
 	// 不管出错或是成功，都需要间歇一会
 	time.Sleep(durPause)
 
-	w.processSync()
-
-	pool, _, err := w.redisPoolMap.Fetch(w.IP, w.mgr.Conf.PoolSize)
+	pool, _, err := w.redisPoolMap.FetchOrNew(w.IP, w.mgr.Conf.PoolSize)
 
 	if err != nil { // 获取或构造 redis pool fail，暂缓一些时间
-		w.Log.Error("get conf redis pool fail", zap.Error(err), zap.String("confIP", w.IP))
-		return err
+		w.Log.Error("get conf redis pool fail", zap.Error(err))
+		return
 	}
 
 	w.processCrontab(pool)
-
-	return nil
 }
 
-func (w *ConfWorker) processSync() error {
-	if err := w.mgr.LogSync(); err != nil {
-		w.Log.Error("sync log fail", zap.Error(err))
-		return err
-	}
-	return nil
-}
-
-func (w *ConfWorker) processCrontab(pool *rxpool.Pool) error {
+func (w *ConfWorker) processCrontab(pool *rxpool.Pool) {
 	tabName := w.mgr.CrontabName()
 	res := pool.Cmd("hget", tabName, "v")
 
-	// 无有效信息，退出
-	if res.IsType(redis.Nil) {
-		return nil
+	v, err := w.resToV(res)
+
+	if err != nil {
+		w.Log.Warn("get crontab version fail", zap.Error(err))
+		return
 	}
 
-	if v, err := res.Str(); err != nil {
-		w.Log.Warn("get crontab version fail.", zap.Error(err))
-		return err
-	} else {
-		if v == w.V {
-			// 版本一致
-			return nil
-		}
-		w.V = v
+	// 若版本信息一致，则不作处理
+	if v == w.V {
+		return
 	}
 
-	// 成功获取，更新配置
+	w.V = v
+
+	// 无版本信息，清零
+	if w.V == "" {
+		w.Log.Info("no version, clear crontab job")
+		w.mgr.Conf.CrontabJobDslMap = map[string]string{}
+		return
+	}
+
+	// 有版本信息，尝试获取整个hash table
 	res = pool.Cmd("hgetall", tabName)
 	if mp, err := res.Map(); err == nil {
 		w.mgr.Conf.CrontabJobDslMap = mp
 		w.Log.Info("get crontab success", zap.Object("config", mp))
 	} else {
 		w.Log.Warn("get crontab fail", zap.Error(err))
-		return err
+	}
+}
+
+func (w *ConfWorker) resToV(res *redis.Resp) (string, error) {
+	// 空，就当清零
+	if res.IsType(redis.Nil) {
+		return "", nil
 	}
 
-	return nil
+	v, err := res.Str()
+
+	if err != nil {
+		return "", errors.New("version parse fail: " + err.Error())
+	}
+
+	return v, nil
 }

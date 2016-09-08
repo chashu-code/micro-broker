@@ -8,7 +8,7 @@ import (
 )
 
 // WrkProcFn 工作器处理回调
-type WrkProcFn func() error
+type WrkProcFn func()
 
 // Worker 工作器基类
 type Worker struct {
@@ -51,4 +51,12 @@ func (w *Worker) Run(mgr *manage.Manager, wrkName string, proc WrkProcFn) {
 	for !mgr.IsShutdown() {
 		w.process()
 	}
+}
+
+// msgPackField 构造一个msgPackField
+func msgPackField(msg *manage.Msg) zap.Field {
+	if msg == nil {
+		return zap.Skip()
+	}
+	return zap.Marshaler("msgPack", msg)
 }

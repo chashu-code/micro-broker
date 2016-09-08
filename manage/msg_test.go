@@ -38,8 +38,14 @@ func Test_Msg_IsDead(t *testing.T) {
 
 	assert.True(t, msg.IsDead())
 
-	msg.DeadLine = time.Now().Unix() + 1
+	now := time.Now().Unix()
+	msg.DeadLine = now - 1
+	assert.True(t, msg.IsDead())
+	msg.DeadLine = now
 	assert.False(t, msg.IsDead())
+	msg.DeadLine = now + 1
+	assert.False(t, msg.IsDead())
+
 }
 
 func Test_Msg_TubeName(t *testing.T) {
@@ -58,6 +64,28 @@ func Test_Msg_ServiceName(t *testing.T) {
 	assert.Equal(t, msg.Topic, msg.ServiceName())
 	msg.Channel = "say"
 	assert.Equal(t, msg.Topic+"/"+msg.Channel, msg.ServiceName())
+}
+
+func Test_Msg_CodeToPutArgs(t *testing.T) {
+	msg := &Msg{}
+	for _, code := range []string{"", "aaa", "11|11"} {
+		msg.Code = code
+		pri, delay, ttr, err := msg.CodeToPutArgs()
+		assert.Nil(t, err)
+		assert.Equal(t, uint32(100), pri)
+		assert.Equal(t, time.Duration(0), delay)
+		assert.Equal(t, 5*time.Minute, ttr)
+	}
+	msg.Code = "2|x|4"
+	pri, delay, ttr, err := msg.CodeToPutArgs()
+	assert.Error(t, err)
+
+	msg.Code = "2|3|4"
+	pri, delay, ttr, err = msg.CodeToPutArgs()
+	assert.Nil(t, err)
+	assert.Equal(t, uint32(2), pri)
+	assert.Equal(t, 3*time.Second, delay)
+	assert.Equal(t, 4*time.Second, ttr)
 }
 
 func Test_Msg_Clone(t *testing.T) {

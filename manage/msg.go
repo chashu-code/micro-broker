@@ -2,6 +2,7 @@ package manage
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -120,4 +121,35 @@ func (msg *Msg) FillWithReq(mgr *Manager) {
 // IsDead 是否已过期？
 func (msg *Msg) IsDead() bool {
 	return msg.DeadLine < time.Now().Unix()
+}
+
+// CodeToPutArgs Code 转换为 Put Job 的相关参数
+func (msg *Msg) CodeToPutArgs() (pri uint32, delay, ttr time.Duration, err error) {
+	arr := strings.SplitN(msg.Code, "|", 3)
+
+	pri = 100
+	delay = time.Duration(0)
+	ttr = 5 * time.Minute
+
+	if len(arr) == 3 {
+		var v uint64
+		v, err = strconv.ParseUint(arr[0], 10, 32)
+		if err != nil {
+			return
+		}
+		pri = uint32(v)
+
+		v, err = strconv.ParseUint(arr[1], 10, 32)
+		if err != nil {
+			return
+		}
+		delay = time.Duration(v) * time.Second
+
+		v, err = strconv.ParseUint(arr[2], 10, 32)
+		if err != nil {
+			return
+		}
+		ttr = time.Duration(v) * time.Second
+	}
+	return
 }
