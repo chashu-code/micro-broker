@@ -1,70 +1,152 @@
 package manage
 
 import (
+	"errors"
+	"strings"
 	"testing"
 
+	"github.com/chashu-code/micro-broker/defaults"
+	"github.com/chashu-code/micro-broker/utils"
 	"github.com/stretchr/testify/assert"
 )
 
-func Test_ManagerMapOp(t *testing.T) {
-	m := &Manager{}
-	m.Init("test")
-
-	// map
-	idUnfound := uint8(10)
-	mp := m.Map(idUnfound)
-	assert.Nil(t, mp)
-
-	mp = m.Map(IDMapConf)
-	assert.NotNil(t, mp)
-
-	// map_set
-	result := m.MapSet(idUnfound, "hello", 1)
-	assert.False(t, result)
-
-	result = m.MapSet(IDMapConf, "hello", 1)
-	assert.True(t, result)
-
-	// map_get
-	v, ok := m.MapGet(idUnfound, "hello")
-	assert.False(t, ok)
-
-	v, ok = m.MapGet(IDMapConf, "hello")
-	assert.True(t, ok)
-	assert.Equal(t, 1, v)
-
-	v, ok = m.MapGet(IDMapConf, "unfound")
-	assert.False(t, ok)
-	assert.Nil(t, v)
-
-	// map_del
-	m.MapDel(idUnfound, "hello")
-	m.MapDel(IDMapConf, "hello")
-
-	_, ok = m.MapGet(IDMapConf, "hello")
-	assert.False(t, ok)
+type testProtocol struct {
 }
 
-func Test_ManagerVerbose(t *testing.T) {
-	m := &Manager{}
-	m.Init("test")
+func (p *testProtocol) BytesToMsg(bts []byte) (*Msg, error) {
+	if len(bts) != 2 {
+		return nil, errors.New("error bytes length")
+	}
 
-	assert.Equal(t, "test", m.Name())
+	msg := &Msg{
+		Code: string(bts),
+	}
 
-	assert.False(t, m.Verbose())
-	m.SetVerbose(true)
-	assert.True(t, m.Verbose())
+	return msg, nil
 }
 
-func Test_ManagerShutdown(t *testing.T) {
-	m := &Manager{}
-	m.Init("test")
+func (p *testProtocol) MsgToBytes(msg *Msg) ([]byte, error) {
+	if len(msg.Code) != 2 {
+		return nil, errors.New("error msg code length")
+	}
 
-	assert.False(t, m.IsShutdown())
-	m.Shutdown()
-	assert.True(t, m.IsShutdown())
+	return []byte(msg.Code), nil
 }
 
-func Test_ManagerPickBrokersFromStr(t *testing.T) {
+func genProtocol() IProtocol {
+	return &testProtocol{}
+}
 
+func newManager() *Manager {
+	conf := NewConfig()
+	return NewManager(conf)
+}
+
+func Test_Manager_Inbox(t *testing.T) {
+	mgr := newManager()
+	assert.Equal(t, "ms:inbox:1", mgr.Inbox(1))
+}
+
+func Test_Manager_Outbox(t *testing.T) {
+	mgr := newManager()
+	assert.Equal(t, "ms:outbox:1", mgr.Outbox(1))
+}
+
+func Test_Manager_Shutdown(t *testing.T) {
+	mgr := newManager()
+	assert.False(t, mgr.IsShutdown())
+	mgr.Shutdown()
+	assert.True(t, mgr.IsShutdown())
+}
+
+func Test_Manager_IP(t *testing.T) {
+	mgr := newManager()
+	ips, _ := utils.IntranetIP()
+	ip := ips[0]
+	assert.Equal(t, ip, mgr.IP())
+	assert.Equal(t, ip, mgr.IP())
+}
+
+func Test_Manager_CrontabName(t *testing.T) {
+	mgr := newManager()
+	name := "ms:crontab:" + mgr.IP()
+	assert.Equal(t, name, mgr.CrontabName())
+}
+
+func Test_Manager_Pack(t *testing.T) {
+	mgr := newManager()
+	_, err := mgr.Pack(nil)
+	assert.Error(t, err) // msg is nil
+
+	mgr.AddProtocolGenFn(1, genProtocol)
+
+	msg := &Msg{}
+	_, err = mgr.Pack(msg)
+	assert.Error(t, err) // error version
+
+	msg.V = 1
+
+	var bts []byte
+	bts, err = mgr.Pack(msg)
+	assert.Error(t, err) // msg.Code need 2 char
+
+	msg.Code = "ab"
+	bts, err = mgr.Pack(msg)
+	assert.Equal(t, []byte{1, 'a', 'b'}, bts)
+	assert.Nil(t, err)
+}
+
+func Test_Manager_UnPack(t *testing.T) {
+	bts := []byte{2, 'a', 'b'}
+	mgr := newManager()
+
+	_, err := mgr.Unpack(bts)
+	assert.Error(t, err)
+
+	mgr.AddProtocolGenFn(2, genProtocol)
+
+	var msg *Msg
+	msg, err = mgr.Unpack(bts)
+	assert.Nil(t, err)
+	assert.Equal(t, "ab", msg.Code)
+}
+
+func Test_Manager_NextTID(t *testing.T) {
+	mgr := newManager()
+
+	count := 5
+	tidMap := map[string]bool{}
+
+	signal := make(chan bool, 0)
+
+	go func() {
+		for i := 0; i < count; i++ {
+			tidMap[mgr.NextTID()] = true
+		}
+		signal <- true
+	}()
+
+	for i := 0; i < count; i++ {
+		tidMap[mgr.NextTID()] = true
+	}
+
+	<-signal
+
+	// 应该有10个
+	assert.Equal(t, 10, len(tidMap))
+	idMap := map[string]bool{}
+
+	for tid := range tidMap {
+		id := strings.Split(tid, "/")[2]
+		idMap[id] = true
+	}
+
+	// 且id不同
+	assert.Equal(t, 10, len(idMap))
+
+	// 超过最大值，自动调整为1
+	mgr.tid = defaults.TIDMax
+	tid := mgr.NextTID()
+	id := strings.Split(tid, "/")[2]
+	assert.Equal(t, "1", id)
 }
