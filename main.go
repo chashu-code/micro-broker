@@ -28,7 +28,6 @@ var pathPID = flag.String("p", "", "pid file path")
 // var nojob = flag.Bool("nojob", false, "若指定，则不对job进行处理")
 
 func main() {
-
 	flag.Parse()
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
@@ -47,6 +46,7 @@ func main() {
 	}
 
 	mgr := manage.NewManager(conf)
+
 	mgr.RedisPoolMap = pool.NewRedisPoolMap()
 	mgr.BeanPoolMap = pool.NewBeanPoolMap()
 	mgr.SubWrkRun = work.SubWorkerRun

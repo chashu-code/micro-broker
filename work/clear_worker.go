@@ -18,6 +18,8 @@ type ClearWorker struct {
 
 	// clear
 	clearCounter int
+	// redis pool ping
+	pingCounter int
 }
 
 // ClearWorkerRun 运行1个 ClearWorkerRun
@@ -34,11 +36,34 @@ func (w *ClearWorker) process() {
 
 	w.syncLog()
 	w.clearResQueue()
+	w.redisPoolPing()
+}
+
+// redisPoolPing 定时ping redis connection，预防超时
+func (w *ClearWorker) redisPoolPing() {
+	// 120s 处理一次
+	w.pingCounter = w.pingCounter % 120
+
+	if w.pingCounter == 0 {
+		p := w.redisPoolMap.Fetch(w.IP)
+
+		if p == nil {
+			w.Log.Warn("redisPool unfound", zap.String("pool", w.IP))
+			return
+		}
+
+		for i := 0; i < w.mgr.Conf.PoolSize; i++ {
+			p.Cmd("PING")
+		}
+	}
+
+	w.pingCounter++
 }
 
 // clearResQueue 清理redis应答队列（pid不存在的）
 func (w *ClearWorker) clearResQueue() {
-	w.clearCounter = w.clearCounter % 5
+	// 30s 处理一次
+	w.clearCounter = w.clearCounter % 30
 
 	if w.clearCounter == 0 {
 		p := w.redisPoolMap.Fetch(w.IP)

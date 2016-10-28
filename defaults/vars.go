@@ -22,5 +22,5 @@ const (
 	DefaultMsgQueueTimeoutMSecs = 1000
 
 	// DefaultWrkPauseSecs 工作器需要间歇时，暂停秒数
-	DefaultWrkPauseSecs = 5
+	DefaultWrkPauseSecs = 1
 )
