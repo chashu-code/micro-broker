@@ -5,11 +5,13 @@ import (
 	"sync"
 
 	"github.com/chashu-code/micro-broker/defaults"
+	"github.com/chashu-code/micro-broker/utils"
 	rxpool "github.com/mediocregopher/radix.v2/pool"
 )
 
 // RedisPoolMap redis connection pool map
 type RedisPoolMap struct {
+	localIP  string
 	portTail string
 	lock     *sync.RWMutex
 	poolMap  map[string]*rxpool.Pool
@@ -19,6 +21,7 @@ type RedisPoolMap struct {
 func NewRedisPoolMap() *RedisPoolMap {
 	return &RedisPoolMap{
 		portTail: ":6379",
+		localIP:  utils.LocalIP(),
 		lock:     new(sync.RWMutex),
 		poolMap:  make(map[string]*rxpool.Pool),
 	}
@@ -33,7 +36,7 @@ func (pmap *RedisPoolMap) Fetch(ip string) *rxpool.Pool {
 func (pmap *RedisPoolMap) ipToAddr(ip string) string {
 	addr := ip
 	if ip == defaults.IPLocal {
-		addr = "127.0.0.1" + pmap.portTail
+		addr = pmap.localIP + pmap.portTail
 	} else if !strings.Contains(ip, ":") {
 		addr = ip + pmap.portTail
 	}
@@ -59,6 +62,7 @@ func (pmap *RedisPoolMap) FetchOrNew(ip string, size int) (*rxpool.Pool, bool, e
 	}
 
 	pmap.poolMap[addr] = p
+
 	return p, true, nil
 }
 

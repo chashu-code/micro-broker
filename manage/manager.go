@@ -207,16 +207,7 @@ func (m *Manager) IP() string {
 	if m.ip != "" {
 		return m.ip
 	}
-
-	ips, err := utils.IntranetIP()
-
-	if err != nil {
-		m.Log.Error("get intranet ip fail", zap.Error(err))
-		m.ip = "127.0.0.1"
-	} else {
-		m.ip = ips[0]
-	}
-
+	m.ip = utils.LocalIP()
 	return m.ip
 }
 

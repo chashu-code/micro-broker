@@ -123,6 +123,6 @@ func (w *CarryWorker) pushMsg(destIP, boxName string, msg *manage.Msg) {
 	res := pool.Cmd("rpush", w.mgr.Inbox(boxName), bts)
 
 	if res.Err != nil {
-		w.Log.Error("redis rpush fail", zap.Error(res.Err))
+		w.Log.Error("redis rpush fail", zap.Error(res.Err), msgPackField(msg))
 	}
 }

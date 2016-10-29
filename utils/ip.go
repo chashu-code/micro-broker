@@ -6,6 +6,17 @@ import (
 	"strings"
 )
 
+// LocalIP 返回默认内网IP，失败返回127.0.0.1
+func LocalIP() string {
+	ips, err := IntranetIP()
+
+	if err != nil {
+		return "127.0.0.1"
+	}
+
+	return ips[0]
+}
+
 // IntranetIP 返回内网地址IP列表
 func IntranetIP() (ips []string, err error) {
 	ips = make([]string, 0)

@@ -15,7 +15,7 @@ import (
 	"github.com/uber-go/zap"
 )
 
-var ipConf = flag.String("ipconf", "127.0.0.1:6379", "指定可链接到配置redis，多个可以用,隔开")
+var ipConf = flag.String("ipconf", "", "指定可链接到配置redis，多个可以用,隔开")
 var logPath = flag.String("log", "", "指定日志文件路径，若不指定，则直接输出到终端")
 
 // var brokerName = flag.String("n", "", "指定 Broker 名称（ 默认采用 os.Hostname ）")
